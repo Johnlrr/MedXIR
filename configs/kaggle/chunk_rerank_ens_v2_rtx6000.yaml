@@ -1,0 +1,19 @@
+# bge-reranker-v2-m3 over the 0.2755 ensemble's own 600-chunk pool (pool.parquet of boinhbo/medxir-docrerank-ens-v2),
+# so fuse_scores.py --bge-pool has a score for every pooled chunk (the hybrid pool missed 7% of the window centres).
+kernel:
+  id: boinhbo/medxir-chunk-rerank-ens-v2
+  title: medxir chunk rerank ens v2
+  code_file: src/notebooks/kaggle_chunk_rerank.ipynb
+  kernel_type: notebook
+  enable_gpu: true
+  enable_internet: false
+  machine_shape: NvidiaRtxPro6000
+  expected_hardware_contains: "6000"
+  competition_sources: [arc-prize-2026-arc-agi-3]
+  kernel_sources:
+    - boinhbo/medxir-package-rerankers
+  dataset_sources: [boinhbo/medxir-retrieval-inputs, ntklinhfitus/medxir-chunk-corpus-v2, boinhbo/medxir-docrerank-ens-v2]
+  timeout_seconds: 10800
+  poll_interval_seconds: 120
+  fetch_files: [progress.txt, faulthandler.txt, pool.parquet]
+  required_outputs: [pool.parquet]

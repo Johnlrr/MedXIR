@@ -1,0 +1,19 @@
+# Qwen3-8B (instruct, yes/no prompt of Qwen3-Reranker) scores candidate documents at ranks 0-120 of the 0.2965
+# ensemble (pool + submission in boinhbo/medxir-docrerank-ens-v2), queries 0, 0+2, ... (shard 0 of 2; the other
+# shard runs on the other account). Output doc_rank.parquet only; fuse_scores.py fuses it with the bge scores.
+kernel:
+  id: boinhbo/medxir-doc-rerank-llm-s0
+  title: medxir doc rerank llm s0
+  code_file: src/notebooks/kaggle_doc_rerank_llm_s0.ipynb
+  kernel_type: notebook
+  enable_gpu: true
+  enable_internet: false
+  machine_shape: NvidiaRtxPro6000
+  expected_hardware_contains: "6000"
+  competition_sources: [arc-prize-2026-arc-agi-3]
+  kernel_sources: [boinhbo/medxir-package-qwen3llm8b]
+  dataset_sources: [boinhbo/medxir-retrieval-inputs, ntklinhfitus/medxir-chunk-corpus-v2, boinhbo/medxir-docrerank-ens-v2]
+  timeout_seconds: 18000
+  poll_interval_seconds: 120
+  fetch_files: [progress.txt, faulthandler.txt, doc_rank.parquet]
+  required_outputs: [doc_rank.parquet]

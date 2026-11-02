@@ -135,11 +135,24 @@ def load_scorer(name, path):
         tok = AutoTokenizer.from_pretrained(str(path), padding_side='left')
         model = AutoModelForCausalLM.from_pretrained(str(path), torch_dtype=torch.bfloat16).cuda().eval()
         yes, no = tok.convert_tokens_to_ids('yes'), tok.convert_tokens_to_ids('no')
+        prefix = ('<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the '
+                  'Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>\n<|im_start|>user\n')
+        suffix = '<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n'
         instruct = 'Given a Vietnamese medical question, judge whether the document answers the question'
 
+        suffix_ids = tok(suffix, add_special_tokens=False)['input_ids']
+
         def score(queries, docs):
-            enc = qwen_reranker_inputs(tok, queries, docs, instruct, DOC_MAX_TOKENS).to('cuda')
-            logits = model(**enc).logits[:, -1, :]
+            # Only the document is cut, as in the Qwen3-Reranker reference code: cutting the whole string at
+            # DOC_MAX_TOKENS dropped the assistant suffix of every long pair, so yes/no was read mid-document
+            # (31/10: Qwen3-8B scores had Spearman 0.06 with bge; the 30/10 Qwen3-Reranker-4B run had the same cut).
+            heads = tok([f'{prefix}<Instruct>: {instruct}\n<Query>: {q}\n<Document>: ' for q in queries],
+                        add_special_tokens=False)['input_ids']
+            bodies = tok(list(docs), add_special_tokens=False)['input_ids']
+            seqs = [h + b[:max(DOC_MAX_TOKENS - len(h) - len(suffix_ids), 0)] + suffix_ids for h, b in zip(heads, bodies)]
+            enc = tok.pad({'input_ids': seqs}, padding=True, return_tensors='pt').to('cuda')
+            hidden = model.model(input_ids=enc['input_ids'], attention_mask=enc['attention_mask']).last_hidden_state
+            logits = model.lm_head(hidden[:, -1, :])   # last position only: full-vocab logits for every token are ~GBs
             return torch.softmax(torch.stack([logits[:, no], logits[:, yes]], dim=1).float(), dim=1)[:, 1]
         return model, score, QWEN_BATCH
     tok = AutoTokenizer.from_pretrained(str(path))
@@ -228,9 +241,33 @@ def main():
     parser.add_argument('--gpu-bge', action='store_true',
                         help='GPU run: bge on ranks 0-400, no prior doc_rank.parquet, one cheap BUILD variant '
                              '(for a pool/submission exported by fuse_scores.py --export-pool)')
+    parser.add_argument('--llm', default=None, metavar='MODEL_DIR',
+                        help="GPU run with a packaged instruct LLM (e.g. Qwen3-8B) scoring yes/no like Qwen3-Reranker")
+    parser.add_argument('--instruct', default=None, help='replace the reranker instruction (LLM mode)')
+    parser.add_argument('--zone', type=int, nargs=2, default=(0, 100), help='candidate ranks the LLM scores')
+    parser.add_argument('--shard', type=int, nargs=2, default=(0, 1), metavar=('I', 'N'),
+                        help='score queries I, I+N, I+2N, ... (parallel runs on two accounts); no ZIP is built')
     args = parser.parse_args()
     cells = CELLS
-    if args.gpu_bge:
+    if args.llm:
+        config = (CONFIG.replace("DOC_RERANKERS = {}          #", f"DOC_RERANKERS = {{{args.llm!r}: {tuple(args.zone)}}}  #")
+                  .replace('PRIOR_DOC_RANK = True       #', 'PRIOR_DOC_RANK = False      #')
+                  .replace('DOC_MAX_TOKENS = 1024 if DOC_CHUNKS > 1 else 512', 'DOC_MAX_TOKENS = 1024   # lead + 1 chunk fits uncut')
+                  + f"QUERY_SHARD = {tuple(args.shard)}   # (i, n): this run scores queries i, i+n, ...\n")
+        edits = [("QIDS = [e['id'] for e in CTX['base']][:QUERY_LIMIT or None]",
+                  "QIDS = [e['id'] for e in CTX['base']][:QUERY_LIMIT or None][QUERY_SHARD[0]::QUERY_SHARD[1]]"),
+                 ("if name.startswith('Qwen3-Reranker'):",
+                  f"if name.startswith('Qwen3-Reranker') or name == {args.llm!r}:   # instruct LLM, same yes/no prompt"),
+                 ('if QUERY_LIMIT:\n', 'if True:   # sharded LLM run: doc_rank.parquet only\n')]
+        if args.instruct:
+            edits.append(("instruct = 'Given a Vietnamese medical question, judge whether the document answers the question'",
+                          f'instruct = {args.instruct!r}'))
+        cells = [(kind, config if text is CONFIG else text) for kind, text in CELLS]
+        for old, new in edits:
+            hits = [i for i, (_, text) in enumerate(cells) if old in text]
+            assert len(hits) == 1, (old, hits)
+            cells[hits[0]] = (cells[hits[0]][0], cells[hits[0]][1].replace(old, new))
+    elif args.gpu_bge:
         config = (CONFIG.replace("DOC_RERANKERS = {}          #", "DOC_RERANKERS = {'bge-reranker-v2-m3': (0, 400)}  #")
                   .replace('PRIOR_DOC_RANK = True       #', 'PRIOR_DOC_RANK = False      #')
                   .replace("BUILD = ['nb60-drr-bge-only-ghigh1-min200-s20', 'nball-drr-bge-only-ghigh-min200']",

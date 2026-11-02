@@ -171,11 +171,13 @@ def validate(submission, queries, corpus_ids):
         assert all(chunk['doc_id'] in listed and chunk['chunk_text'].strip() for chunk in entry['relevant_chunks'])
 
 
-def write_submission(submission, out, name):
+def write_submission(submission, out, name, method='deflate'):
+    """method 'bzip2' packs ~1.55x the text of deflate into the same ZIP size (30/10 test on the 0.2477 JSON)."""
     json_path = out / f'{name}.json'
     zip_path = out / f'{name}.zip'
     json_path.write_text(json.dumps(submission, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
-    with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+    compression = {'deflate': zipfile.ZIP_DEFLATED, 'bzip2': zipfile.ZIP_BZIP2, 'lzma': zipfile.ZIP_LZMA}[method]
+    with zipfile.ZipFile(zip_path, 'w', compression=compression, compresslevel=9) as archive:
         archive.write(json_path, arcname=json_path.name)
     with zipfile.ZipFile(zip_path) as archive:
         assert archive.namelist() == [json_path.name]
