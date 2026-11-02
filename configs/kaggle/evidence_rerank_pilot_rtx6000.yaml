@@ -1,0 +1,40 @@
+{
+  "kernel": {
+    "id": "ntklinhfitus/medxir-evidence-rerank-pilot-20261031",
+    "title": "medxir-evidence-rerank-pilot-20261031",
+    "code_file": "src/notebooks/kaggle_evidence_rerank_pilot.ipynb",
+    "kernel_type": "notebook",
+    "immutable_kernel": true,
+    "enable_gpu": true,
+    "enable_internet": false,
+    "machine_shape": "NvidiaRtxPro6000",
+    "expected_hardware_contains": "6000",
+    "competition_sources": [
+      "arc-prize-2026-arc-agi-3"
+    ],
+    "dataset_sources": [
+      "ntklinhfitus/medxir-chunk-corpus-v2",
+      "boinhbo/medxir-docrerank-ens-v2",
+      "boinhbo/medxir-retrieval-inputs"
+    ],
+    "kernel_sources": [
+      "boinhbo/medxir-package-rerankers"
+    ],
+    "timeout_seconds": 7200,
+    "poll_interval_seconds": 30,
+    "metrics_file": "passage_pilot_report.json",
+    "fetch_files": [
+      "passage_pilot_report.json",
+      "passage_review.json"
+    ],
+    "required_outputs": [
+      "passage_pilot_report.json"
+    ],
+    "json_checks": [
+      {
+        "path": "complete",
+        "value": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "kernel": {
+    "id": "ntklinhfitus/medxir-retrieval-input-audit-20261031",
+    "title": "medxir-retrieval-input-audit-20261031",
+    "code_file": "src/notebooks/kaggle_retrieval_input_audit.ipynb",
+    "kernel_type": "notebook",
+    "immutable_kernel": true,
+    "enable_gpu": false,
+    "enable_internet": false,
+    "dataset_sources": [
+      "ntklinhfitus/medxir-chunk-corpus-v2",
+      "boinhbo/medxir-docrerank-ens-v2",
+      "boinhbo/medxir-retrieval-inputs"
+    ],
+    "kernel_sources": [
+      "boinhbo/medxir-package-rerankers"
+    ],
+    "timeout_seconds": 3600,
+    "poll_interval_seconds": 30,
+    "metrics_file": "retrieval_input_audit.json",
+    "fetch_files": [
+      "retrieval_input_audit.json",
+      "retrieval_input_samples.json"
+    ],
+    "required_outputs": [
+      "retrieval_input_audit.json"
+    ],
+    "json_checks": [
+      {
+        "path": "complete",
+        "value": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "kernel": {
+    "id": "ntklinhfitus/medxir-passages-qwen-20261031",
+    "title": "medxir-passages-qwen-20261031",
+    "code_file": "src/notebooks/kaggle_passage_qwen.ipynb",
+    "kernel_type": "notebook",
+    "immutable_kernel": true,
+    "enable_gpu": true,
+    "enable_internet": false,
+    "kernel_sources": [
+      "boinhbo/medxir-package-rerankers",
+      "ntklinhfitus/medxir-passages-prepare-20261031"
+    ],
+    "timeout_seconds": 36000,
+    "poll_interval_seconds": 30,
+    "machine_shape": "NvidiaRtxPro6000",
+    "expected_hardware_contains": "6000",
+    "competition_sources": [
+      "arc-prize-2026-arc-agi-3"
+    ],
+    "fetch_files": [
+      "passage_scores_qwen_manifest.json",
+      "passage_qwen_submission_manifest.json",
+      "medxir-passage-qwen-d200.zip"
+    ],
+    "required_outputs": [
+      "passage_scores_qwen_manifest.json",
+      "passage_qwen_submission_manifest.json",
+      "medxir-passage-qwen-d200.zip"
+    ],
+    "metrics_file": "passage_scores_qwen_manifest.json",
+    "json_checks": [
+      {
+        "path": "complete",
+        "value": true
+      }
+    ]
+  }
+}
