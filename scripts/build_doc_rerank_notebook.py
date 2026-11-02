@@ -51,13 +51,16 @@ LEAD_CHARS = 400            # characters of the document start (title / lead) sh
 DOC_CHUNKS = 1              # best pool chunks of the document shown; 2 doubles the pair length (Qwen ~4 h)
 DOC_MAX_TOKENS = 1024 if DOC_CHUNKS > 1 else 512   # pair length cap for the reranker
 QWEN_BATCH = 16
-BUILD = ['nb60-drr-bge-only-ghigh', 'nb60-drr-bge-only-ghigh-cover', 'nb30-drr-bge-only-ghigh-cover']
-# v2 30/10: bge-only 0.2464, glow 0.2352, ghigh 0.2477
+BUILD = ['ensbge-win1-cov50-bz', 'ensbge-win1-cov0-bz']   # bm25w variants: attach the bm25-words kernel output
+import os
+os.environ['POOL_FILE'] = 'pool-bgefull.parquet'   # pool parquet name under /kaggle/input (expand_chunks.load_inputs)
+# v2 30/10: bge-only 0.2464, glow 0.2352, ghigh 0.2477; fusion 4B/8B/Octen nb60-drr-bge-only 0.2539 (reference)
 QUERY_LIMIT = 0             # >0: first N queries only (speed check; doc_rank.parquet written, no ZIPs)
 """
 
 MODULE = ('# Copied from scripts/expand_chunks.py by scripts/build_doc_rerank_notebook.py. Edit the script and rebuild.\n'
-          + copied_source(Path(__file__).resolve().parent / 'expand_chunks.py'))
+          + copied_source(Path(__file__).resolve().parent / 'expand_chunks.py')
+          + '\n' + copied_source(Path(__file__).resolve().parent / 'reranker_inputs.py'))
 
 SETUP = r"""
 import subprocess
@@ -132,14 +135,10 @@ def load_scorer(name, path):
         tok = AutoTokenizer.from_pretrained(str(path), padding_side='left')
         model = AutoModelForCausalLM.from_pretrained(str(path), torch_dtype=torch.bfloat16).cuda().eval()
         yes, no = tok.convert_tokens_to_ids('yes'), tok.convert_tokens_to_ids('no')
-        prefix = ('<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the '
-                  'Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>\n<|im_start|>user\n')
-        suffix = '<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n'
         instruct = 'Given a Vietnamese medical question, judge whether the document answers the question'
 
         def score(queries, docs):
-            texts = [f'{prefix}<Instruct>: {instruct}\n<Query>: {q}\n<Document>: {d}{suffix}' for q, d in zip(queries, docs)]
-            enc = tok(texts, padding=True, truncation=True, max_length=DOC_MAX_TOKENS, return_tensors='pt').to('cuda')
+            enc = qwen_reranker_inputs(tok, queries, docs, instruct, DOC_MAX_TOKENS).to('cuda')
             logits = model(**enc).logits[:, -1, :]
             return torch.softmax(torch.stack([logits[:, no], logits[:, yes]], dim=1).float(), dim=1)[:, 1]
         return model, score, QWEN_BATCH

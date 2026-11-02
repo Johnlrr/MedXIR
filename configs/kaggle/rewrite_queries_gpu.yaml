@@ -1,0 +1,15 @@
+# GPU (T4), Internet ON: rewrite the 1,200 queries as short Vietnamese title-style questions (task vq) with
+# Qwen/Qwen3-4B-Instruct-2507 (scripts/translate_queries.py), for title search (scripts/title_search.py).
+kernel:
+  id: ntklinhfitus/medxir-rewrite-queries
+  title: medxir rewrite queries
+  code_file: src/notebooks/kaggle_rewrite_queries.ipynb
+  kernel_type: notebook
+  enable_gpu: true
+  enable_internet: true
+  machine_shape: NvidiaTeslaT4
+  dataset_sources: [boinhbo/medxir-retrieval-inputs]
+  timeout_seconds: 7200
+  poll_interval_seconds: 60
+  fetch_files: [query_rewrites.json]
+  required_outputs: [query_rewrites.json]

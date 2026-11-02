@@ -1,0 +1,15 @@
+# GPU (T4), Internet ON: translate the 1,200 queries to English and Chinese with Qwen/Qwen3-4B-Instruct-2507
+# (scripts/translate_queries.py). The output feeds USE_TRANSLATION in the hybrid notebook.
+kernel:
+  id: ntklinhfitus/medxir-translate-queries
+  title: medxir translate queries
+  code_file: src/notebooks/kaggle_translate_queries.ipynb
+  kernel_type: notebook
+  enable_gpu: true
+  enable_internet: true
+  machine_shape: NvidiaTeslaT4
+  dataset_sources: [boinhbo/medxir-retrieval-inputs]
+  timeout_seconds: 7200
+  poll_interval_seconds: 60
+  fetch_files: [query_translations.json]
+  required_outputs: [query_translations.json]

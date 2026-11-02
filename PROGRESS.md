@@ -1,4 +1,121 @@
+## Tr?ng th?i m?i nh?t ? 02/11/2026 (private)
+
+Theo recap ng??i d?ng: t?t nh?t public 0,2981, file
+`../submission/v2ens-bge35-drr-dp05bge-llm10-d200.zip`; Doc P/R
+0,1646/0,5582; Chunk P/R 0,192/0,379. Private d?ng c?ng 1.200 query,
+5 l??t t?ng, h?n 04/11 23:59 gi? Vi?t Nam theo recap. Ch?a t? d?ng l??t private.
+
+?u ti?n gh?p title-search v2 v?o v? doc c?a n?n 0,2981. C?c k? ho?ch c?t c?a s?,
+?p ph? m?i doc v? t?ng EN/ZH ? nh?t k? b?n d??i ?? ???c thay th? b?i k?t qu? m?i.
+Kh?ng di?n gi?i s? doc v??t ng??ng BGE l? s? doc ??ng theo nh?n.
+
+?? t?i title v2 t? `ntklinhfitus/medxir-title-search`: 1.200 rewrite,
+110.603 c?p (query,text) m?i, 201.753 c?p BGE; trung b?nh 14,74 text/query
+v??t ng??ng BGE c?. ?? audit hai ZIP n?n ?? 1.200 query; b?o c?o t?i
+`artifacts/private_20261102/`. File 0,2981 c? trung b?nh 201,054 doc v?
+131,088 chunk/query. C?c con s? n?y l? c?u tr?c ??u ra, kh?ng ph?i ?i?m m?i.
+
+Pull l?i theo y?u c?u ng??i d?ng: Already up to date, origin/main v?n ed1a4ac
+(?0.2755 method?). Ch?a c? c?ng th?c gh?p LLM ho?c ?i?m LLM trong code hi?n c?.
+ZIP ch? ch?a k?t qu?, kh?ng th? kh?i ph?c ch?nh x?c c?ng th?c t? t?n file.
+C?n code/?i?m LLM v? c?ch ch?m c?c doc title m?i tr??c khi t?o b?n gh?p ??ng n?n.
+Kh?ng commit/push.
+
 # Tiến trình MedXIR
+
+**Mốc tốt nhất 0,298 (31/10):** pipeline chi tiết và đề xuất rerank có điểm tiêu đề ở
+[docs/PIPELINE_0298.md](docs/PIPELINE_0298.md).
+
+## Rà soát đang thực hiện — 31/10/2026
+
+**Quyết định mới của người dùng:** chấp nhận BZIP2 như bản0,2916; thay thế yêu cầu
+không dùng BZIP2 trước đây. Vẫn cần duyệt trước mỗi lượt nộp. Exporter hỗ trợ
+BZIP2 với tên ZIP/manifest riêng, không ghi đè bản DEFLATE đã chấm; snapshot Qwen
+đang RUNNING giữ nguyên. Chỉ nén lại cùng JSON không làm thay đổi tập kết quả/điểm.
+
+**Kết quả chấm mới do người dùng cung cấp:**
+
+| Bản | FINAL | Doc F2 | Chunk F2 | Doc P | Doc R | Chunk P | Chunk R |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Passage BGE d200 (nhánh mới) | 0,2609 | 0,3147 | 0,2072 | 0,1610 | 0,5408 | 0,1631 | 0,2746 |
+| **v2ens-bgefull-drr-d200-c120** | **0,2916** | **0,3206** | **0,2627** | 0,1593 | **0,5650** | 0,1901 | **0,3610** |
+
+Passage mới kém mốc0,2755 ở cả Doc/Chunk F2; không dùng độ phủ cấu trúc để suy
+relevance. Tạm ngừng ưu tiên nộp d160/d120 của nhánh này, vì chúng giữ nguyên chunk.
+Baseline kết quả tốt nhất hiện biết là0,2916. **ZIP này dùng BZIP2(method12)**,
+không phải DEFLATE: chứa JSON597.387.206byte trong ZIP96.708.881byte. 120,08đoạn/query,
+phủ104,63doc/query, đoạn trung vị3.051ký tự. So với0,2755, DocF2 chỉ+0,0009,
+ChunkF2+0,0313; chưa tách tác động BGE full khỏi tăng số đoạn và đổi cách nén.
+Đã hỏi lại người dùng vì trước đó yêu cầu không dùngBZIP2; chưa tự đổi quy tắc xuất.
+Lần pull theo yêu cầu: `git fetch origin` và `git pull --ff-only` đều thành công,
+nhưng `HEAD == origin/main == ed1a4ac`, báo Already up to date. Chưa có commit mới
+giải thích bản0,2916 trên remote. Mọi thay đổi local được giữ nguyên.
+Qwen passage full hiện RUNNING, không còn QUEUED. Chưa tự nộp kết quả của nó.
+Score đã gắn SHA256 ZIP trong `artifacts/recall_research_20261031/scored_results_20261031.json`.
+
+**Cập nhật 13:49 Việt Nam:** pilot2 và CPU chuẩn bị đã SUCCESS. Gate so 16 query
+khớp nguyên văn/offset/fanout. BGE full đã chấm 466.571 cặp và xuất ZIP 93,57 MB;
+audit local đủ 1.200 query, không trùng đoạn, DEFLATE, SHA256 đúng. Bản đề xuất:
+`R2/submission/passages-20261031/medxir-passage-bge-d200.zip`.
+100 đoạn/query phủ trung bình 88,71 doc (bản 0,2755: 67,03); top50 đều có đoạn.
+Qwen full vẫn QUEUED. Chưa có điểm chấm mới, chưa dùng lượt nộp.
+Kế hoạch có điều kiện: [NEXT_SUBMISSIONS_20261031.md](docs/NEXT_SUBMISSIONS_20261031.md).
+Các ghi chú QUEUED/chuẩn bị ở dưới là lịch sử, không phải trạng thái mới nhất.
+
+Mục tiêu mới: Chunk R 0,45–0,50, Doc/Chunk P 0,20–0,30, FINAL >0,40. **Chưa đạt**;
+mốc đã chấm vẫn là 0,2755. Người dùng xác nhận còn 3 lượt public, hai bản win-cov50
+chưa nộp. Báo cáo và kế hoạch hiện hành: [RECALL_RESEARCH_20261031.md](docs/RECALL_RESEARCH_20261031.md).
+
+Đối chiếu BGE/Qwen: [RERANKER_COMPARISON_20261031.md](docs/RERANKER_COMPARISON_20261031.md).
+Đã đọc đủ 16 cặp top1 của pilot1: nhận xét định tính BGE nhỉnh hơn 4, Qwen 3, hòa 9;
+không có nhãn chuẩn nên không kết luận model thắng. Có kiểm tra thêm nguồn EN.
+BGE nhanh hơn khoảng 11 lần; Qwen chọn nhiều nguồn Trung/Anh khác nhưng đôi khi
+lệch ý hoặc chỉ có câu hỏi. Hai nhánh full giữ cùng ứng viên và cách xuất để đối chiếu.
+
+- Đã đọc luật trực tiếp từ API BTC: `LCS / max(len(candidate), len(reference)) >= 0.4`.
+  Những mô tả cũ chỉ chia cho reference ở bên dưới là lịch sử, không còn đúng.
+- Đọc đủ 1.200 query trong 7 ZIP: bản 0,2755 có trung bình 206,53 doc nhưng chỉ
+  67,03 doc có đoạn; 22,87% top-20 doc không có đoạn. Wholedoc chỉ phủ 33,82 doc,
+  đoạn trung vị 5.866 ký tự nên điểm thấp không chứng minh riêng doc rerank kém.
+- Pool Bảo đã chia sẻ đọc được: thực tế 500 chunk/query, `final_score` là điểm
+  ensemble và `rrf` toàn 0; không được coi như cột xác suất bge của hybrid pool.
+- Kaggle CPU audit **SUCCESS** trên 64 query / 22.092 cặp: doc pair bị cắt ở512 token
+  **43,96%**, ở1024 **0,0136%**. Cửa sổ 3 chunk bị cắt ở1024 **35,23%**.
+  Report: `runs/experiments/retrieval-input-audit-20261031-v1/artifacts/retrieval_input_audit.json`.
+- Sửa generator doc/hybrid để Qwen giữ prefix/suffix chấm yes/no sau khi cắt body,
+  theo model card; 3 test prompt và 26 test hybrid qua. Đây là sửa kỹ thuật, chưa có
+  bằng chứng tăng điểm. Kết luận cũ "Qwen kém bge" cần được kiểm tra lại.
+- Chuẩn bị đoạn liên tục theo offset, không sinh/viết lại text; 4 test nguồn/offset qua.
+  Pilot RTX 16 query chạy BGE và Qwen trên cùng các đoạn, cap768 token đoạn /2048 cặp.
+  Notebook `ntklinhfitus/medxir-evidence-rerank-pilot-20261031`; chưa nộp leaderboard.
+- Đã hoàn tất audit toàn thư mục: **38 ZIP bài nộp, 3 ZIP chứa nhiều file**.
+  Cả 38 bài có đúng query ID 1..1200. Bảng đối chiếu đầy đủ:
+  `artifacts/recall_research_20261031/submission_audit_summary.md`.
+  Các bản doc-rerank BGE/Qwen v1 có cùng tập chunk với nb60 v1, nên chưa đo
+  tác dụng chấm lại passage. Bộ kiểm tra output pilot có 2 test qua.
+- Pilot GPU v1 **SUCCESS**: 16 query, 6.302 cặp, 358,9 giây. Qwen cũ mất suffix
+  ở 111/128 mẫu; bản sửa 0. BGE/Qwen đều không truncation ở cap2048. BGE đạt
+  237,4 cặp/s; Qwen 21,7 cặp/s; top20 source agreement 28,1%, chưa có relevance labels.
+  Phát hiện 2.775 cửa sổ gặp gap và rơi về seed; đã sửa giữ phần liên tục quanh
+  seed thay vì bỏ toàn bộ hàng xóm. 8 test liên quan qua. Đã gửi pilot2 cùng 16 query
+  để kiểm tra bản sửa, chưa chạy full1200 hay dùng lượt nộp.
+- Đang dựng **candidate cho đủ1.200query trên Kaggle CPU**:
+  `ntklinhfitus/medxir-passages-prepare-20261031` đã RUNNING. Đọc chunk theo batch,
+  index tạm trên disk, giữ text của từng query trong RAM; lưu mỗi32query thành
+  một parquet có SHA256. Không tải corpus/model về local.
+- Pipeline đầy đủ đã chuẩn bị: `scripts/run_passage_pipeline.py` đang chạy local,
+  chờ pilot2/CPU thành công, tải mẫu và đối chiếu nguyên văn16query giữa hai đường
+  dựng đoạn. Chỉ nếu khớp mới gửi2job GPU BGE/Qwen; không tự nộp cuộc thi.
+  Mỗi model lưu checkpoint từng part rồi dựng ZIP DEFLATE dưới99MB. Chọn doc bằng
+  MaxP, d200; ưu tiên đoạn cho top50doc, sau đó theo điểm; bỏ stub<40BGEtokens và
+  các cửa sổ gần trùng(>=80% độ dài đoạn ngắn hơn). Chunk cap bắt đầu100 và giảm
+  toàn cục nếu ZIP lớn. Đây là phương pháp mới chưa có điểm chấm.
+  8test mới cho source index/candidate/ZIP/gate qua; thêm8test span/pilot đã qua trước.
+  Trạng thái điều phối: `runs/passage_pipeline_20261031/state.json`.
+
+Không dùng nhãn bị lộ, không nén bzip2, không ghép doc/chunk của các bài khác nhau,
+không chỉnh tham số riêng từng query. Các số đếm gold và ngưỡng bge0,208 trong ghi
+chú cũ là giả thuyết; sigmoid chưa được hiệu chỉnh nên không coi là xác suất thật.
 
 **Cập nhật:** 30/10/2026 (UTC+07:00). Bản bàn giao: phần "Bàn giao" bên dưới là trạng thái hiện tại. Các mục từ 1 trở đi là nhật ký theo thời gian; một số khẳng định cũ (ví dụ "đang chạy", "chưa có điểm" ở mục 16) đã lỗi thời và được ghi đè bởi phần bàn giao.
 
@@ -86,6 +203,13 @@ Mục cũ (chọn chunk từ pool top-500, gộp điểm doc, trọng số BM25)
 |---|---|---:|---|
 | **v2ens-bge25-drr-d200-c76-x1** (`artifacts/submission/`) | Có | **0,2755** | **Mốc tốt nhất** (hai hướng ghép, corpus v2) |
 | v2ens-bge25-d200-c76-x1 (`artifacts/submission/`) | Chưa nộp | | Như trên, chưa bge doc rerank |
+| win1-cov50-drr-bge-only (`R2/submission/win-cov50/`) | Chưa nộp | | Hướng A (pool fusion 0,2539), đoạn kiểu 0,2755: cửa sổ 3 chunk, xếp theo bge 0,25 + rrf 0,75, mỗi doc top 50 một cửa sổ trước, rồi một cửa sổ mỗi text. Doc như 0,2539. Kernel `ntklinhfitus/medxir-doc-rerank-win` (CPU 8,5 phút), config `doc_rerank_win_cpu.yaml` |
+| win1-cov50-drr-bge-conf (`R2/submission/win-cov50/`) | Chưa nộp | | Như trên, số doc theo query: doc có bge ≥ 0,208, kẹp 80–300 (trung vị 197, p10 103, p90 302). Chỉ đổi danh sách doc so với bản trên |
+| bm25w-d40 (`R2/submission/bm25w/`) | Có | 0,1017 | Doc F2 0,1177 (P 0,1525, R 0,1329), Chunk F2 0,0857 (P 0,114, R 0,0945). **Giả thuyết "BM25 kiểu BTC" sai**: P ở 40 doc ngang P ở 206 doc của pipeline chính; 0,88 của BTC không tái tạo được trên dữ liệu crawl của mình. Bỏ hướng, không nộp bm25w-drr. **Chẩn đoán**: BM25 theo từ kiểu BTC (`scripts/bm25_words.py`, kernel `ntklinhfitus/medxir-bm25-words`, 13 phút CPU): query tách từ pyvi, NFKC + chữ thường, không bỏ stopword, k1 1,5, b 0,75, cấp text; top 40 text, mỗi text một cửa sổ quanh chunk BM25 tốt nhất. Đo Doc P (BTC: 0,88 ở ~35 doc). 48% doc trong top 40 này không có trong danh sách 206 doc của 0,2539 / 0,2755 |
+| **v2ens-bgefull-drr-dp03-title-d200** (`R2/submission/title/`) | Có | **0,298** | **Mốc tốt nhất (31/10 23:3x)**. Bản 0,2965 của Bảo (LZMA, 131 cửa sổ, doc prior 0,3) + **tìm doc theo tiêu đề**: 1,18 triệu tiêu đề (cột `title`) embed Qwen3-Embedding-8B, top 150/query bằng query gốc; doc chưa có trong ứng viên `doc_rank.parquet` được chấm bge như doc rerank (400 ký tự đầu + chunk tốt nhất trong 6 chunk đầu); danh sách 200 doc xếp lại bge-only trên ứng viên cũ ∪ mới (200 đầu của 0,2965 trùng 100% với bge-only cũ). 11,6 doc mới/query vào top 200; chunk giữ nguyên. Doc F2 0,3197 → 0,3226 (P 0,1626, R 0,5634), Chunk F2 0,2734 (P 0,191, R 0,3811). Kernel `ntklinhfitus/medxir-title-search` (`scripts/title_search.py`, config `title_search_norewrite_rtx6000.yaml`); bước ghép chạy local (chưa thành script) |
+| translate-nb60-d200-drr-bge-only (`R2/submission/translate/`) | Có | 0,2383 | Fusion 0,2539 + dịch query EN/ZH (Qwen3-4B-Instruct-2507, `scripts/translate_queries.py`, kernel `ntklinhfitus/medxir-translate-queries`) làm biến thể dense (TRANS_K 300, W 0,5) + rerank cùng ngôn ngữ (max điểm VI / bản dịch) cho chunk và doc EN/ZH. Kernel `ntklinhfitus/medxir-hybrid-translate` (53 phút + chờ). Doc F2 0,2984 (P 0,148, R 0,5275), Chunk F2 0,1783 (P 0,133, R 0,2534). **Lỗ**: doc ZH 15% → 35%, max nâng 85% chunk EN/ZH (219k/257k), doc ZH thêm vào phần lớn không đúng và đẩy doc VI đúng ra. Đáp án nghiêng VI; cân bằng ~15–17% EN/ZH cũ đã ổn. Chưa tách tìm-bằng-bản-dịch khỏi rerank-max |
+| ensbge-win1-cov50-bz (`R2/submission/ensbge/`) | Có | 0,2829 | Doc F2 0,3187 (P 0,159, R 0,5606), Chunk F2 0,2471 (P 0,1718, R 0,3495): **thua 0,2916** cả Chunk P lẫn R. Giả định "cửa sổ thứ hai cùng doc là phí" sai: cửa sổ thứ hai ở doc điểm cao trúng nhiều hơn cửa sổ đầu ở doc yếu; ép phủ top 50 đưa vào cửa sổ điểm thấp. Giữ chọn cửa sổ thuần theo điểm (cách của Bảo). Nền 0,2916 dựng lại trên CPU (kernel `ntklinhfitus/medxir-doc-rerank-ensbge`, config `doc_rerank_ensbge_cpu.yaml`, 26 phút): pool ensemble v2 của Bảo + bge trên cả 500 chunk (`ntklinhfitus/medxir-ens-v2-bgefull`), cửa sổ xếp ensemble 0,75 · bge 0,25, BZIP2. Top 200 doc trùng 100% với 0,2916. Khác: top 50 doc đều có cửa sổ (0,2916: 91% top 20, 74% top 20–50), mỗi doc 1 cửa sổ; 118,7 cửa sổ phủ 118,6 doc (0,2916: 120 cửa sổ, 104,6 doc). 77% cửa sổ trùng 0,2916. Bản đối chứng cov0 (chỉ 1 cửa sổ/doc) ở runs, chưa copy |
+| win1-cov50-bm25w-drr (`R2/submission/bm25w/`) | Chưa nộp | | win1-cov50 + doc xếp bằng RRF 1:1 của bge và BM25 theo từ (top 100 text), cửa sổ xếp bge 0,25 · rrf 0,5 · BM25 theo từ 0,25 (cả chunk ngoài pool). Mọi doc top 40 của BM25 theo từ vào danh sách; doc ZH 16% → 9%. Chỉ nộp nếu bm25w-d40 có Doc P cao |
 | v2 fusion 4B · Qwen3-8B · Octen-8B nb60-drr-bge-only (`R2/submission/fusion-35-35-30/`) | Có | 0,2539 | Mốc tốt nhất hướng A |
 | v2 Qwen3-8B hybrid nb60-drr-bge-only (`R2/submission/qwen8b/`) | Có | 0,2509 | |
 | v2 nb60-d200-drr-bge-only | Có | 0,2464 | |

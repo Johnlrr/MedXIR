@@ -43,6 +43,19 @@ class Fusion(unittest.TestCase):
         self.assertEqual(fused[0][0], 'b')
 
 
+class TranslationLists(unittest.TestCase):
+    def test_translation_lists_weighted_only_when_on(self):
+        results = {'m': dict(full_ids=[['a']], sub_lists=[[['b']]], trans_lists=[[['c'], ['d']]], prf_ids=None)}
+        off = hr.model_candidate_lists(results, {'m': 0.5}, 0, 0.5, 0.5)
+        on = hr.model_candidate_lists(results, {'m': 0.5}, 0, 0.5, 0.5, 0.5)
+        self.assertEqual(off, [(['a'], 0.5), (['b'], 0.25)])
+        self.assertEqual(on, off + [(['c'], 0.25), (['d'], 0.25)])
+
+    def test_results_without_translation_lists(self):
+        results = {'m': dict(full_ids=[['a']], sub_lists=[[]], prf_ids=None)}
+        self.assertEqual(hr.model_candidate_lists(results, {'m': 1.0}, 0, 0.5, 0.5, 0.5), [(['a'], 1.0)])
+
+
 class Documents(unittest.TestCase):
     # Doc A: four good chunks; doc B: one slightly better lucky chunk.
     SCORED = [('b1', 0.72), ('a1', 0.71), ('a2', 0.70), ('a3', 0.69), ('a4', 0.66)]
@@ -76,7 +89,7 @@ class Notebook(unittest.TestCase):
         env = dict(np=np, rrf=hr.rrf, USE_QUERY_SPLIT=False, USE_PRF=False,
                    USE_BM25=True, BM25_ACTIVE=False, USE_RERANK=False, QUERY_TEXT=['q'],
                    DENSE_FULL_IDS=np.array([['a', 'b']]), SUB_LISTS=[[]], PRF_IDS=None,
-                   BM25_IDS=[[]], RRF_K=60, W_SUB=0.5, W_PRF=0.5, W_BM25=0.3, POOL_MAX=600)
+                   BM25_IDS=[[]], RRF_K=60, W_SUB=0.5, W_PRF=0.5, W_BM25=0.3, POOL_MAX=600, USE_TRANSLATION=False, W_TRANS=0.5)
         env.update(ACTIVE_MODEL_WEIGHTS={'qwen4b': 1.0}, model_candidate_lists=hr.model_candidate_lists,
                    MODEL_RESULTS={'qwen4b': dict(full_ids=[['a','b']], sub_lists=[[]], prf_ids=None)})
         exec(build_hybrid_notebook.FUSE, env)
@@ -90,7 +103,7 @@ class Notebook(unittest.TestCase):
         env = dict(np=np, rrf=hr.rrf, model_candidate_lists=hr.model_candidate_lists,
                    ACTIVE_MODEL_WEIGHTS={'qwen4b': .25, 'qwen8b': .75}, MODEL_RESULTS=results,
                    USE_QUERY_SPLIT=False, USE_PRF=False, BM25_ACTIVE=True, USE_RERANK=False,
-                   QUERY_TEXT=['q'], BM25_IDS=[['a']], RRF_K=60, W_SUB=.5, W_PRF=.5, W_BM25=.3, POOL_MAX=600)
+                   QUERY_TEXT=['q'], BM25_IDS=[['a']], RRF_K=60, W_SUB=.5, W_PRF=.5, W_BM25=.3, POOL_MAX=600, USE_TRANSLATION=False, W_TRANS=0.5)
         exec(build_hybrid_notebook.FUSE, env)
         scores = dict(env['FUSED'][0])
         self.assertAlmostEqual(scores['a'], .25/61 + .75/62 + .3/61)
@@ -105,7 +118,7 @@ class Notebook(unittest.TestCase):
             env=dict(np=np,rrf=hr.rrf,model_candidate_lists=hr.model_candidate_lists,
                      ACTIVE_MODEL_WEIGHTS=weights,MODEL_RESULTS=results,USE_QUERY_SPLIT=False,
                      USE_PRF=False,BM25_ACTIVE=False,USE_RERANK=False,QUERY_TEXT=['q'],
-                     BM25_IDS=[[]],RRF_K=60,W_SUB=.5,W_PRF=.5,W_BM25=.3,POOL_MAX=600)
+                     BM25_IDS=[[]],RRF_K=60,W_SUB=.5,W_PRF=.5,W_BM25=.3,POOL_MAX=600, USE_TRANSLATION=False, W_TRANS=0.5)
             exec(build_hybrid_notebook.FUSE,env)
             self.assertFalse(env['ONLY_DENSE'])
             self.assertEqual(env['FUSED'][0][0][0],expected)
