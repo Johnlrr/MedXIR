@@ -172,15 +172,37 @@ def window_text(cid, context, spans):
     return text
 
 
-def bge_doc_order(doc_rank, column):
-    """{query_id: candidate documents sorted by the reranker score, unscored ones last in candidate order}."""
+def bge_doc_order(doc_rank, column, extra=None, k=60):
+    """{query_id: candidate documents sorted by the reranker score, unscored ones last in candidate order}.
+
+    extra: (frame with query_id, doc_id, score; weight). Documents it scores get weight / (k + rank among them) on top
+    of 1 / (k + bge rank) (RRF); the rest keep the bge term only.
+    """
     frame = pd.read_parquet(doc_rank, columns=['query_id', 'doc_id', 'base_rank', column])
     frame = frame[frame['base_rank'] >= 0].sort_values(['query_id', 'base_rank'])
+    other = {} if extra is None else {int(q): g for q, g in extra[0].groupby('query_id')}
     out = {}
     for qid, g in frame.groupby('query_id'):
         scored = g[g[column].notna()].sort_values(column, ascending=False, kind='stable')
-        out[int(qid)] = [int(d) for d in scored['doc_id']] + [int(d) for d in g.loc[g[column].isna(), 'doc_id']]
+        docs = [int(d) for d in scored['doc_id']]
+        if extra is not None and int(qid) in other:
+            fused = {d: 1 / (k + r) for r, d in enumerate(docs)}
+            e = other[int(qid)].sort_values('score', ascending=False, kind='stable')
+            for r, d in enumerate(e['doc_id'].astype(int)):
+                if d in fused:
+                    fused[d] += extra[1] / (k + r)
+            docs = sorted(docs, key=lambda d: -fused[d])
+        out[int(qid)] = docs + [int(d) for d in g.loc[g[column].isna(), 'doc_id']]
     return out
+
+
+def extra_doc_scores(spec):
+    """'PARQUET[,PARQUET...]:COLUMN:WEIGHT' (sharded doc_rank.parquet files) -> (frame query_id, doc_id, score; weight)."""
+    paths, column, weight = spec.rsplit(':', 2)
+    frame = pd.concat([pd.read_parquet(x, columns=['query_id', 'doc_id', column]) for x in paths.split(',')])
+    frame = frame.dropna().rename(columns={column: 'score'})
+    assert not frame.duplicated(['query_id', 'doc_id']).any()
+    return frame, float(weight)
 
 
 def pool_list(path):
@@ -252,6 +274,16 @@ def main():
     parser.add_argument('--doc-rank', type=Path, default=None,
                         help="doc_rank.parquet of kaggle_doc_rerank.ipynb run on this run's --export-pool output")
     parser.add_argument('--doc-rank-column', default='bge-reranker-v2-m3')
+    parser.add_argument('--doc-prior-bge-only', action='store_true',
+                        help='--doc-prior uses the --doc-rank scores only, not --doc-rank-extra (31/10: LLM in the prior '
+                             'cost 0.0018 Chunk F2 while LLM in the document list gained 0.0039 Doc F2)')
+    parser.add_argument('--doc-rank-extra', default=None, metavar='PARQUET[,PARQUET]:COLUMN:WEIGHT',
+                        help='second document reranker (e.g. LLM shards), RRF-fused with --doc-rank and averaged into '
+                             '--doc-prior')
+    parser.add_argument('--doc-prior', type=float, default=0.0,
+                        help='add this times the best --doc-rank score of a chunk\'s documents to its score before '
+                             'choosing chunks/windows')
+    parser.add_argument('--zip', choices=['deflate', 'bzip2', 'lzma'], default='deflate', help='ZIP compression method')
     parser.add_argument('--dry-run', action='store_true', help='print the set difference only, write nothing')
     parser.add_argument('--out', type=Path, default=ROOT / 'artifacts' / 'submission')
     args = parser.parse_args()
@@ -315,6 +347,30 @@ def main():
         chunk_files += sorted((kaggle / 'chunk-corpus-v2' / 'chunks').glob('*/part-*.parquet'))
         hash_path = kaggle / 'chunk-corpus-v2' / 'hash_groups.parquet'
         assert len(chunk_files) == 12, chunk_files
+    records = dense.chunk_records(chunk_files, wanted, set(chunk_ids[:, :max(chunk_counts)].ravel().tolist()))
+    assert not wanted - set(records)
+    lookup = dense.group_lookup(hash_path)
+    if args.doc_prior:  # chunk score + lambda * best bge document score of its documents: P(chunk) ~ P(doc) P(chunk|doc)
+        assert args.doc_rank, '--doc-prior needs --doc-rank'
+        frame = pd.read_parquet(args.doc_rank, columns=['query_id', 'doc_id', args.doc_rank_column]).dropna()
+        doc_score = {int(q): dict(zip(g['doc_id'].astype(int), g[args.doc_rank_column])) for q, g in frame.groupby('query_id')}
+        if args.doc_rank_extra and not args.doc_prior_bge_only:  # documents the second reranker scored: weighted mean of the two scores
+            extra, w = extra_doc_scores(args.doc_rank_extra)
+            for q, d, sc in zip(extra['query_id'].astype(int), extra['doc_id'].astype(int), extra['score']):
+                if d in doc_score.get(q, {}):
+                    doc_score[q][d] = (doc_score[q][d] + w * sc) / (1 + w)
+        before = [select_windows(row, max(chunk_counts), max(args.context, 0)) for row in chunk_ids]
+        for qi, qid in enumerate(queries['id'].tolist()):
+            ds = doc_score.get(int(qid), {})
+            prior = np.array([max((ds.get(d, 0.0) for d in dense.docs_of(records[c], lookup)), default=0.0)
+                              for c in ids[qi]], dtype=np.float32)
+            new = scores[qi] + args.doc_prior * prior
+            order = np.argsort(-new, kind='stable')
+            ids[qi], scores[qi] = ids[qi][order], new[order]
+        chunk_ids = chunk_order(ids, args.max_per_doc)
+        after = [select_windows(row, max(chunk_counts), max(args.context, 0)) for row in chunk_ids]
+        changed = np.mean([1 - len(set(a) & set(b)) / len(b) for a, b in zip(after, before)])
+        print(json.dumps(dict(doc_prior=args.doc_prior, window_centres_changed=round(float(changed), 3))), flush=True)
     windows = spans = None
     if args.context:
         windows = [select_windows(row, max(chunk_counts), args.context) for row in chunk_ids]
@@ -323,13 +379,11 @@ def main():
                   for cid in centers for d in range(-args.context, args.context + 1)}
         spans = load_spans(chunk_files, needed)
         assert centers <= set(spans)
-    records = dense.chunk_records(chunk_files, wanted, set(chunk_ids[:, :max(chunk_counts)].ravel().tolist()))
-    assert not wanted - set(records)
-    lookup = dense.group_lookup(hash_path)
     corpus_ids = set(map(int, pd.read_parquet(ROOT / 'dataset' / 'links_corpus_vi_en_zh.parquet', columns=['id'])['id']))
     doc_override = None
     if args.doc_rank:
-        order = bge_doc_order(args.doc_rank, args.doc_rank_column)
+        order = bge_doc_order(args.doc_rank, args.doc_rank_column,
+                              extra_doc_scores(args.doc_rank_extra) if args.doc_rank_extra else None)
         base = build_submission(queries, chunk_ids, doc_reps, records, lookup, doc_counts[0], chunk_counts[0],
                                 args.split, windows, args.context, spans)
         # The notebook's candidates start with the submitted list: keep as many documents as it had.
@@ -354,8 +408,9 @@ def main():
                     json.dumps(submission, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
                 print('doc rerank inputs:', folder, flush=True)
             name = (f'medxir-{args.tag}-d{n}-c{c}' + (f'-s{args.split}' if args.split > 1 else '')
-                    + (f'-x{args.context}' if args.context else '') + '-submission')
-            print(f'd{n}-c{c}', dense.write_submission(submission, args.out, name), flush=True)
+                    + (f'-x{args.context}' if args.context else '') + {'deflate': '', 'bzip2': '-bz', 'lzma': '-lz'}[args.zip]
+                    + '-submission')
+            print(f'd{n}-c{c}', dense.write_submission(submission, args.out, name, args.zip), flush=True)
 
 
 if __name__ == '__main__':

@@ -2,13 +2,13 @@
 
 **Cập nhật:** 30/10/2026 (UTC+07:00). Bản bàn giao: phần "Bàn giao" bên dưới là trạng thái hiện tại. Các mục từ 1 trở đi là nhật ký theo thời gian; một số khẳng định cũ (ví dụ "đang chạy", "chưa có điểm" ở mục 16) đã lỗi thời và được ghi đè bởi phần bàn giao.
 
-> **Tốt nhất 30/10: FINAL 0,2755** (`v2ens-bge25-drr-d200-c76-x1`): ghép hai hướng trên corpus v2. Ensemble dense 4B + Qwen3-8B + Octen-8B (query gốc, PRF, biến thể LLM) + BM25 v2 + điểm bge của pool hybrid, gộp min-max (`fuse_scores.py`), rồi bge doc rerank (`kaggle_doc_rerank_ens.ipynb`) và cửa sổ 3 chunk × 76. Công thức đầy đủ: mục "Ghép hai hướng trên corpus v2 — 30/10/2026" cuối file. Hai hướng trước đó: (A) hybrid + `expand_chunks.py`, mục "Hybrid retrieval và ghép chunk"; (B) ensemble + cửa sổ trên v1, mục "Ensemble 8B, cửa sổ, PRF và biến thể query" và [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md).
+> **Tốt nhất 31/10: FINAL 0,2984** (`v2ens-bgefull-drr-dp03bge-llm10-d200-c131-x1-lz`): công thức 0,2755 (ensemble dense 4B + Qwen3-8B + Octen-8B với query gốc, PRF, biến thể LLM + BM25 v2, gộp min-max trong `fuse_scores.py`, bge doc rerank, cửa sổ 3 chunk) + bge-reranker chấm toàn pool của ensemble + ZIP LZMA (131 cửa sổ) + doc-prior bge 0,3 + Qwen3-8B rerank 120 doc đầu (RRF với bge ở vế doc). Chi tiết: mục "Lên 0,2984: bge toàn pool, nén, doc-prior, LLM rerank — 31/10/2026" cuối file. Các mục trước: "Ghép hai hướng trên corpus v2 — 30/10/2026", hướng A "Hybrid retrieval và ghép chunk", hướng B "Ensemble 8B, cửa sổ, PRF và biến thể query" và [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md).
 
 ## Bàn giao
 
 ### 1. Trạng thái
 
-- **Điểm tốt nhất trên leaderboard: FINAL 0,2755** (`v2ens-bge25-drr-d200-c76-x1`, hai hướng ghép, corpus v2; Doc F2 0,3197, Chunk F2 0,2314). Hướng A riêng: 0,2539 (`v2 fusion 4B 0,35 · Qwen3-8B 0,35 · Octen-8B 0,30 nb60-d200-drr-bge-only`). Hướng B riêng (corpus v1): 0,2444 (`var-all-b1-d200-c70-x1`).
+- **Điểm tốt nhất trên leaderboard: FINAL 0,2984** (`v2ens-bgefull-drr-dp03bge-llm10-d200-c131-x1-lz`, corpus v2; Doc F2 0,3235, Chunk F2 0,2734). Trước đó 0,2755 (`v2ens-bge25-drr-d200-c76-x1`, hai hướng ghép). Hướng A riêng: 0,2539 (`v2 fusion 4B 0,35 · Qwen3-8B 0,35 · Octen-8B 0,30 nb60-d200-drr-bge-only`). Hướng B riêng (corpus v1): 0,2444 (`var-all-b1-d200-c70-x1`).
 - Lịch sử điểm hướng A: baseline 0,0818 → d100 0,1453 → d200 0,1517 → d200-c100 0,1783 → d200-c150 0,1847 → hybrid 0,1965 → expand nb30 0,2184 → expand nb60 0,2235 → nb60-drr-bge 0,2253 → v2 nb60-d200 0,2437 → v2 nb60-d200-drr-bge-only 0,2464 → ghigh 0,2477.
 - Lịch sử điểm hướng B: d200-c150 0,1847 → ens4-b1 0,1975 → ens4-b1-x1 (cửa sổ 3 chunk) 0,2410 → Octen-PRF 0,2429 → biến thể LLM 0,2444 → **ghép hai hướng trên v2 0,2755**.
 - **Nút thắt là doc recall (~0,47)**, bằng nhau ở mọi bài hybrid. Mục tiêu tiếp theo: doc recall ~0,56 (ensemble embedding 4B + Qwen3-8B + Octen-8B).
@@ -84,7 +84,13 @@ Mục cũ (chọn chunk từ pool top-500, gộp điểm doc, trọng số BM25)
 
 | File | Đã nộp | Điểm | Ghi chú |
 |---|---|---:|---|
-| **v2ens-bge25-drr-d200-c76-x1** (`artifacts/submission/`) | Có | **0,2755** | **Mốc tốt nhất** (hai hướng ghép, corpus v2) |
+| **v2ens-bgefull-drr-dp03bge-llm10-d200-c131-x1-lz** (`artifacts/submission/`) | Có | **0,2984** | **Mốc tốt nhất** (31/10) |
+| v2ens-bge35-drr-dp05bge-llm10-d200-c131-x1-lz | Có | 0,2981 | bge 0,35 + doc-prior 0,5 |
+| v2ens-bgefull-drr-dp03-llm05-d200-c131-x1-lz | Có | 0,2976 | LLM 0,5, cả trong doc-prior |
+| v2ens-bgefull-drr-dp03-d200-c131-x1-lz | Có | 0,2965 | ZIP LZMA |
+| v2ens-bgefull-drr-d200-c120-x1-bz | Có | 0,2916 | ZIP bzip2 |
+| v2ens-bgefull-drr-dp03bge-llmavg10-d200-c131-x1-lz | Không nộp | | Tập 200 doc trùng 100% với 0,2984 |
+| v2ens-bge25-drr-d200-c76-x1 (`artifacts/submission/`) | Có | 0,2755 | Hai hướng ghép, corpus v2 |
 | v2ens-bge25-d200-c76-x1 (`artifacts/submission/`) | Chưa nộp | | Như trên, chưa bge doc rerank |
 | v2 fusion 4B · Qwen3-8B · Octen-8B nb60-drr-bge-only (`R2/submission/fusion-35-35-30/`) | Có | 0,2539 | Mốc tốt nhất hướng A |
 | v2 Qwen3-8B hybrid nb60-drr-bge-only (`R2/submission/qwen8b/`) | Có | 0,2509 | |
@@ -867,4 +873,53 @@ Bỏ `--doc-rank` và thêm `--export-pool 600` để dựng bản trước doc 
 2. **Byte theo độ tự tin (ghigh):** hướng A +0,0013 với γ −0,5. Áp vào số cửa sổ mỗi query.
 3. **bge cho toàn pool của ensemble:** pool bge hiện chỉ là 600 chunk của 4B + BM25; 7% tâm cửa sổ của ta không có điểm bge.
 4. **Doc list:** RRF 1:1 giữa thứ hạng ensemble và bge thay cho bge-only (bge thay tới 51 doc/query); `cover` của hướng A (doc hạng 100–200 thường không có đoạn nào được nộp).
+
+## Lên 0,2984: bge toàn pool, nén, doc-prior, LLM rerank — 31/10/2026
+
+Mọi bài dưới đây đều trên công thức 0,2755 (mục trước), corpus v2, d200, cửa sổ 3 chunk (`--context 1`).
+
+| Bài | FINAL | Doc F2 | Chunk F2 | Doc P / R | Chunk P / R | Thay đổi so với dòng trên |
+|---|---:|---:|---:|---|---|---|
+| v2ens-bge25-drr-c76 (deflate) | 0,2755 | 0,3197 | 0,2314 | 0,161 / 0,556 | 0,219 / 0,284 | |
+| v2ens-bgefull-drr-c120-bz | 0,2916 | 0,3206 | 0,2627 | 0,159 / 0,565 | 0,190 / 0,361 | bge chấm toàn pool + ZIP bzip2 (120 cửa sổ) |
+| v2ens-bgefull-drr-dp03-c131-lz | 0,2965 | 0,3197 | 0,2734 | 0,161 / 0,558 | 0,191 / 0,381 | doc-prior 0,3 + ZIP LZMA (131 cửa sổ) |
+| ...-dp03-llm05-c131-lz | 0,2976 | **0,3236** | 0,2716 | 0,164 / 0,559 | 0,189 / 0,382 | Qwen3-8B rerank doc (trọng số 0,5), có cả trong doc-prior |
+| **...-dp03bge-llm10-c131-lz** | **0,2984** | 0,3235 | **0,2734** | 0,165 / 0,558 | 0,191 / 0,381 | LLM 1,0 chỉ ở vế doc; doc-prior chỉ bge |
+| v2ens-bge35-drr-dp05bge-llm10-c131-lz | 0,2981 | 0,3233 | 0,2728 | 0,165 / 0,558 | 0,192 / 0,379 | bge 0,35 + doc-prior 0,5: P lên, R xuống |
+
+### Các bước
+
+1. **bge cho toàn pool** (`scripts/build_chunk_rerank_notebook.py` → `kaggle_chunk_rerank.ipynb`, config `chunk_rerank_ens_v2_rtx6000.yaml`, kernel `boinhbo/medxir-chunk-rerank-ens-v2`, exp_0029, 16 phút): bge-reranker-v2-m3 chấm 600.000 cặp (1.200 query × 500 chunk của pool ensemble trong dataset `boinhbo/medxir-docrerank-ens-v2`). Ra `pool.parquet` cùng định dạng pool hybrid (`final_score` = bge), tải về `artifacts/bge-ens-v2/`, dùng qua `--bge-pool ...:0.25`. Trước đó pool bge của hướng A thiếu 7% tâm cửa sổ.
+2. **Nén ZIP mạnh hơn** (`--zip bzip2|lzma`, `retrieve_local_4b.write_submission(method=...)`): cùng JSON, deflate 96,7 MB = 76 cửa sổ; bzip2 = 120 cửa sổ; LZMA = 131 cửa sổ (98 MB). Dashboard nhận cả bzip2 và LZMA. Chunk R tăng theo số cửa sổ (0,284 → 0,361 → 0,381): mỗi cửa sổ thêm trúng ≈ 9%, trên ngưỡng p > F2/5 ≈ 4,6% để thêm một mục làm tăng F2.
+3. **doc-prior** (`--doc-prior 0.3`): điểm chunk + 0,3 × điểm bge doc cao nhất trong các doc của chunk (`doc_rank.parquet` của doc rerank), trước khi chọn cửa sổ. Đổi ~12% tâm cửa sổ; doc thêm vào chỉ vì có chunk giảm (trung vị 212 → 203). 0,5 cùng bge 0,35 không tốt hơn.
+4. **Qwen3-8B rerank doc** (`build_doc_rerank_notebook.py --llm Qwen3-8B --zone 0 120 --shard i 2`, configs `doc_rerank_llm_s{0,1}_rtx6000.yaml`, chạy song song boinhbo / dinhbaobao, ~53 phút mỗi shard; package `{boinhbo,dinhbaobao}/medxir-package-qwen3llm8b`): prompt yes/no của Qwen3-Reranker, cặp = 400 ký tự đầu + chunk tốt nhất, 1024 token, chấm 120 doc đầu (thứ tự fusion) mỗi query. Gộp: `--doc-rank-extra s0,s1:Qwen3-8B:1.0` (RRF với thứ hạng bge cho danh sách doc), `--doc-prior-bge-only` (LLM trong doc-prior làm Chunk F2 −0,0018). Spearman LLM–bge trung vị 0,233. Trọng số 0,5 hay 1,0 cho cùng Doc F2.
+
+### Lỗi đã sửa: prompt Qwen bị cắt
+
+Code chấm kiểu Qwen trong `build_doc_rerank_notebook.py` cắt cả chuỗi `prompt + query + doc + suffix` ở 512 token, nên mọi cặp dài mất phần đuôi `<|im_start|>assistant…</think>` và yes/no được đọc giữa văn bản (lần chạy đầu: Spearman với bge 0,06). Đã sửa theo code mẫu của Qwen3-Reranker: chỉ cắt phần doc, luôn giữ đuôi; logit chỉ tính ở vị trí cuối. **Kết quả Qwen3-Reranker-4B 0,2176 của hướng A (30/10) dùng code cũ nên chưa phản ánh đúng chất lượng model.**
+
+### Prompt v2 (chưa dùng)
+
+Instruct chi tiết (cùng bệnh / triệu chứng / thuốc và đúng điều người hỏi cần; "no" khi chỉ trùng từ) — `doc_rerank_llm2_s{0,1}_rtx6000.yaml`, exp_0036/0037, `artifacts/llm-docrank/doc_rank_v2_s*.parquet`. Spearman với bge 0,259, nhưng điểm bão hòa (trung vị 1,0). Trung bình v1 + v2 cho đúng cùng tập 200 doc với 0,2984: LLM chỉ chấm 120 doc đầu, vốn đã nằm trong tập, nên chỉ đổi thứ tự.
+
+### Công thức 0,2984
+
+```
+A=artifacts/submission; E() { echo "--extra $A/candidates-$1-v2-k500.npz:$2"; }
+uv run python scripts/fuse_scores.py --tag v2ens-bgefull-drr-dp03bge-llm10 --corpus v2 --bm25 artifacts/bm25-v2/vi-candidates-k500.npz --w-bm25 0.14 \
+  $(E 4b 0.09) $(E octen8b 0.09) $(E octen8b-prf 0.12) $(E qwen8b 0.08) $(E qwen8b-prf 0.09) \
+  $(E octen8b-question 0.035) $(E octen8b-passage 0.035) $(E qwen8b-question 0.025) $(E qwen8b-passage 0.025) \
+  $(E octen8b-terms 0.01) $(E qwen8b-terms 0.01) --bge-pool artifacts/bge-ens-v2/pool.parquet:0.25 \
+  --pool union --doc-beta 1.0 --context 1 --doc-rank $A/docrerank-v2ens-bge25/doc_rank.parquet \
+  --doc-prior 0.3 --doc-prior-bge-only \
+  --doc-rank-extra artifacts/llm-docrank/doc_rank_s0.parquet,artifacts/llm-docrank/doc_rank_s1.parquet:Qwen3-8B:1.0 \
+  --chunk-counts 131 --zip lzma
+```
+
+### Nhận xét và hướng tiếp
+
+- Byte vẫn là đòn bẩy mạnh nhất ở vế chunk; trọng số chọn chunk đã ở đỉnh cục bộ (±0,0006).
+- Vế doc bão hòa ~0,32. LLM chỉ đổi tập doc khi chấm vùng quanh ngưỡng cắt 200 (hạng ~150–300 theo bge), chưa làm.
+- LLM chấm từng cửa sổ (chọn 131 trong ~200 ứng viên) nhắm vào Chunk P 0,19; chưa làm (~1,5 giờ trên 2 GPU).
+- Mở rộng query theo bệnh nghi ngờ cho query mơ hồ (~32%) nhắm vào Doc R 0,558.
 
