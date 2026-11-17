@@ -1,0 +1,54 @@
+# Hybrid retrieval (scripts/build_hybrid_notebook.py): query variants, dense search, PRF, BM25, rerank, submission.
+# Switches are in the notebook's first code cell. RTX Pro 6000 is offered only with the competition attached
+# and Internet OFF. Baseline vector outputs plus the additions dataset are read with mmap in blocks.
+# All three models are attached; only models enabled in the config cell are loaded.
+# Same inputs as hybrid_retrieval_rtx6000.yaml, run as ntklinhfitus (it reads every source). Notebook built
+# with USE_TRANSLATION (query translations embedded from artifacts/query_translations.json).
+kernel:
+  id: ntklinhfitus/medxir-hybrid-translate
+  title: medxir hybrid translate
+  code_file: src/notebooks/kaggle_hybrid_retrieval.ipynb
+  kernel_type: notebook
+  enable_gpu: true
+  enable_internet: false
+  machine_shape: NvidiaRtxPro6000
+  expected_hardware_contains: "6000"
+  competition_sources: [arc-prize-2026-arc-agi-3]
+  kernel_sources:
+    - boinhbo/medxir-package-models
+    - boinhbo/medxir-embed-corpus-4b-s0
+    - boinhbo/medxir-embed-corpus-4b-s1
+    - boinhbo/medxir-embed-corpus-4b-s2
+    - boinhbo/medxir-package-qwen8b
+    - dinhbaobao/medxir-embed-corpus-qwen8b-s0
+    - dinhbaobao/medxir-embed-corpus-qwen8b-s1
+    - dinhbaobao/medxir-embed-corpus-qwen8b-s2
+    - boinhbo/medxir-package-octen8b
+    - boinhbo/medxir-embed-corpus-octen8b-s0
+    - boinhbo/medxir-embed-corpus-octen8b-s1
+    - boinhbo/medxir-embed-corpus-octen8b-s2
+    - ntklinhfitus/medxir-bm25-vi-v2
+    - boinhbo/medxir-package-rerankers
+  dataset_sources:
+    - boinhbo/medxir-retrieval-inputs
+    - ntklinhfitus/medxir-chunk-corpus-v2
+    - ntklinhfitus/medxir-vectors-qwen3-4b-additions
+    - ntklinhfitus/medxir-vectors-qwen3-8b-additions
+    - ntklinhfitus/medxir-vectors-octen-8b-additions
+  timeout_seconds: 21600
+  poll_interval_seconds: 120
+  metrics_file: hybrid_manifest.json
+  fetch_files:
+    - progress.txt
+    - faulthandler.txt
+    - hybrid_manifest.json
+    - query_variants.json
+    - pool.parquet
+    - medxir-hybrid-submission.zip
+    - expand_manifest.json
+    - doc_rank.parquet
+    - medxir-expand-nb60-d200-drr-bge-only-submission.zip
+  required_outputs:
+    - hybrid_manifest.json
+    - medxir-hybrid-submission.zip
+    - medxir-expand-nb60-d200-drr-bge-only-submission.zip

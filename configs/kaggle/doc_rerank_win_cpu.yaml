@@ -1,0 +1,26 @@
+# CPU rebuild of the fusion 4B/Qwen3-8B/Octen-8B hybrid run (0.2539) with window entries (expand_chunks 'win'
+# variants): same notebook as doc_rerank_rebuild_cpu.yaml (DOC_RERANKERS = {}, PRIOR_DOC_RANK = True).
+# ntklinhfitus/medxir-fusion-35-35-30 is that run's output (pool.parquet, doc_rank.parquet,
+# medxir-hybrid-submission.zip, query_variants.json), uploaded 30/10. The bm25-words kernel output feeds the
+# 'bm25w' variants.
+kernel:
+  id: ntklinhfitus/medxir-doc-rerank-win
+  title: medxir doc rerank win
+  code_file: src/notebooks/kaggle_doc_rerank.ipynb
+  kernel_type: notebook
+  enable_gpu: false
+  enable_internet: false
+  kernel_sources: [ntklinhfitus/medxir-bm25-words]
+  dataset_sources: [boinhbo/medxir-retrieval-inputs, ntklinhfitus/medxir-chunk-corpus-v2, ntklinhfitus/medxir-fusion-35-35-30]
+  timeout_seconds: 7200
+  poll_interval_seconds: 60
+  metrics_file: expand_manifest.json
+  fetch_files:
+    - progress.txt
+    - faulthandler.txt
+    - expand_manifest.json
+    - medxir-expand-win1-cov50-drr-bge-only-submission.zip
+    - medxir-expand-win1-cov50-bm25w-drr-submission.zip
+  required_outputs:
+    - expand_manifest.json
+    - medxir-expand-win1-cov50-bm25w-drr-submission.zip

@@ -64,8 +64,12 @@ the v1 run, chunks added in v2 enter the pool through dense search only.
 CONFIG = r"""
 # ===================== Config: the only cell to edit =====================
 EMBEDDING_MODEL = 'qwen4b'   # single model: 'qwen4b', 'qwen8b', 'octen8b'
-USE_MODEL_FUSION = False    # True: use MODEL_WEIGHTS below; EMBEDDING_MODEL is then ignored
-MODEL_WEIGHTS = {'qwen4b': 1.0, 'qwen8b': 1.0, 'octen8b': 1.0}
+USE_MODEL_FUSION = True     # True: use MODEL_WEIGHTS below; EMBEDDING_MODEL is then ignored
+MODEL_WEIGHTS = {'qwen4b': 0.35, 'qwen8b': 0.35, 'octen8b': 0.30}   # 30/10 fusion run: 0.2539 (nb60-d200-drr-bge-only)
+USE_TRANSLATION = False     # 31/10: 0.2383 vs 0.2539 (ZH documents 15% -> 35%). EN + ZH translations of each query (scripts/translate_queries.py, embedded below) are
+                            # searched as extra dense queries (TRANS_K candidates, RRF weight W_TRANS per model)
+TRANS_K, W_TRANS = 300, 0.5 # W_TRANS as the sub-query / PRF lists
+RERANK_SAME_LANG = False    # EN/ZH chunks and documents: reranker score = max(VI query, query in the chunk's language)
 # Weighted RRF, normalized to sum=1. Zero skips a model and its inputs.
 # With USE_RERANK=True these weights select the candidate pool; the reranker then orders that pool.
 USE_QUERY_SPLIT = True      # rule-based cleanup + split of long queries; each sub-query is searched on its own
@@ -85,7 +89,7 @@ MAX_ZIP_MB = 99.0
 
 # Extra ZIPs from the same pool after the hybrid ZIP (scripts/expand_chunks.py), named medxir-expand-nb60-d200-*.
 EXPAND_NB = 60              # neighbours (order +-1) of the top EXPAND_NB chunks merged into spans (nb60 0.2235); 0 = off
-DOC_RERANK = 'fusion'       # bge-reranker-v2-m3 on candidate documents: 'off', 'fusion' (RRF with the chunk-based
+DOC_RERANK = 'only'         # bge-reranker-v2-m3 on candidate documents: 'off', 'fusion' (RRF with the chunk-based
                             # order, 0.2253), 'only' (bge order, 0.2253) or 'both' (two ZIPs, scored once)
 DOC_RERANK_DEPTH = N_DOCS + 200  # candidate documents scored per query (the cut is at N_DOCS); 29/10 run: 400
 DOC_LEAD_CHARS = 400        # document start (title / lead) shown before its best pool chunk
@@ -110,7 +114,8 @@ QUERY_LIMIT = 0             # >0: first N queries only (speed check; no submissi
 MODULE = ('# Copied from scripts/hybrid_retrieval.py by scripts/build_hybrid_notebook.py. Edit the script and rebuild.\n'
           + copied_source(Path(__file__).resolve().parent / 'hybrid_retrieval.py')
           + '\n# Input validation copied from scripts/hybrid_inputs.py.\n'
-          + copied_source(Path(__file__).resolve().parent / 'hybrid_inputs.py'))
+          + copied_source(Path(__file__).resolve().parent / 'hybrid_inputs.py')
+          + '\n' + copied_source(Path(__file__).resolve().parent / 'reranker_inputs.py'))
 
 SETUP = r"""
 import glob
@@ -213,13 +218,23 @@ print(json.dumps(CONFIG, ensure_ascii=False, indent=1))
 """
 
 VARIANTS = r"""
-# One row per text to encode: the full query (always) and its sub-queries (USE_QUERY_SPLIT).
+# One row per text to encode: the full query (always), its sub-queries (USE_QUERY_SPLIT) and its EN / ZH
+# translations (USE_TRANSLATION).
+TRANS_TEXT = [{} for _ in QUERY_TEXT]   # qi -> {'en': text, 'zh': text}
+if USE_TRANSLATION:
+    assert TRANSLATIONS_JSON, 'USE_TRANSLATION: rebuild the notebook with --translations query_translations.json'
+    by_id = {int(item['id']): item for item in json.loads(TRANSLATIONS_JSON)['items']}
+    assert all(qid in by_id for qid in QUERY_IDS), 'translations missing for some query ids'
+    assert all(by_id[qid]['vi'] == text for qid, text in zip(QUERY_IDS, QUERY_TEXT)), 'translations of other query texts'
+    TRANS_TEXT = [{lang: by_id[qid][lang] for lang in ('en', 'zh') if by_id[qid].get(lang)} for qid in QUERY_IDS]
 VARIANTS = []
 for qi, text in enumerate(QUERY_TEXT):
     VARIANTS.append(dict(qi=qi, kind='full', text=text))
     if USE_QUERY_SPLIT:
         for sub in sub_queries(text, SPLIT_MIN_WORDS, MIN_SUB_WORDS, MAX_SUBQ):
             VARIANTS.append(dict(qi=qi, kind='sub', text=sub))
+    for lang, translated in TRANS_TEXT[qi].items():
+        VARIANTS.append(dict(qi=qi, kind='trans', lang=lang, text=translated))
 TASK = INSTRUCT_CUSTOM if USE_CUSTOM_INSTRUCT else INSTRUCT_DEFAULT
 (OUT / 'query_variants.json').write_text(json.dumps(dict(task=TASK, variants=VARIANTS), ensure_ascii=False) + '\n',
                                          encoding='utf-8')
@@ -249,7 +264,8 @@ FUSE = r"""
 ONLY_DENSE = len(ACTIVE_MODEL_WEIGHTS) == 1 and not (USE_QUERY_SPLIT or USE_PRF or BM25_ACTIVE)
 FUSED, POOLS = [], []
 for qi in range(len(QUERY_TEXT)):
-    lists = model_candidate_lists(MODEL_RESULTS, ACTIVE_MODEL_WEIGHTS, qi, W_SUB, W_PRF)
+    lists = model_candidate_lists(MODEL_RESULTS, ACTIVE_MODEL_WEIGHTS, qi, W_SUB, W_PRF,
+                                  W_TRANS if USE_TRANSLATION else 0.0)
     if len(BM25_IDS[qi]):
         lists.append((list(BM25_IDS[qi]), W_BM25))
     fused = rrf(lists, RRF_K)
@@ -270,8 +286,9 @@ for qi, pool in enumerate(POOLS):
     need_text.update(DENSE_FULL_IDS[qi, :N_CHUNKS].tolist())  # for the overlap check against plain dense
 wanted = {cid for fused in FUSED for cid, _ in fused}
 wanted_arr, text_arr = pa.array(sorted(wanted)), pa.array(sorted(need_text))
-RECORDS = {}
+RECORDS, LANG_OF = {}, {}
 for path in CHUNK_FILES:
+    lang = Path(path).parent.name   # chunks/<lang>/part-*.parquet
     table = pq.read_table(path, columns=['chunk_id', 'text_sha256', 'rep_doc_id', 'order', 'chunk_text'])
     table = table.filter(pc.is_in(table['chunk_id'], value_set=wanted_arr))
     with_text = pc.is_in(table['chunk_id'], value_set=text_arr).to_pylist()
@@ -279,6 +296,7 @@ for path in CHUNK_FILES:
                                                 table['rep_doc_id'].to_pylist(), table['order'].to_pylist(),
                                                 table['chunk_text'].to_pylist(), with_text):
         RECORDS[cid] = (sha, int(doc), int(order), text if keep else None)
+        LANG_OF[cid] = lang
     del table
 missing = wanted - set(RECORDS)
 assert not missing, f'{len(missing)} candidate chunks have no row in the chunk corpus, e.g. {sorted(missing)[:3]}'
@@ -307,21 +325,29 @@ if USE_RERANK:
     from transformers import AutoModelForCausalLM, AutoModelForSequenceClassification, AutoTokenizer
 
     pairs = [(QUERY_TEXT[qi], RECORDS[cid][3]) for qi, pool in enumerate(POOLS) for cid, _ in pool]
+    n_base, same_lang_of = len(pairs), []   # extra pair -> index of its (VI query, chunk) pair
+    if USE_TRANSLATION and RERANK_SAME_LANG:
+        position = 0
+        for qi, pool in enumerate(POOLS):
+            for cid, _ in pool:
+                translated = TRANS_TEXT[qi].get(LANG_OF[cid])
+                if translated:
+                    pairs.append((translated, RECORDS[cid][3]))
+                    same_lang_of.append(position)
+                position += 1
+    TIMINGS['same_lang_pairs'] = len(same_lang_of)
     scores = np.empty(len(pairs), dtype=np.float32)
     order = np.argsort([len(d) for _, d in pairs], kind='stable')  # similar lengths per batch: less padding
     if RERANKER.startswith('Qwen3-Reranker'):
         tok = AutoTokenizer.from_pretrained(str(RERANK_PATH), padding_side='left')
         model = AutoModelForCausalLM.from_pretrained(str(RERANK_PATH), torch_dtype=torch.bfloat16).cuda().eval()
         yes, no = tok.convert_tokens_to_ids('yes'), tok.convert_tokens_to_ids('no')
-        prefix = ('<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the '
-                  'Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>\n<|im_start|>user\n')
-        suffix = '<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n'
         instruct = 'Given a Vietnamese medical question, judge whether the document contains the answer to the question'
         batch = 16
 
         def score_batch(index):
-            texts = [f'{prefix}<Instruct>: {instruct}\n<Query>: {pairs[i][0]}\n<Document>: {pairs[i][1]}{suffix}' for i in index]
-            enc = tok(texts, padding=True, truncation=True, max_length=1024, return_tensors='pt').to('cuda')
+            enc = qwen_reranker_inputs(tok, [pairs[i][0] for i in index], [pairs[i][1] for i in index],
+                                       instruct, 1024).to('cuda')
             logits = model(**enc).logits[:, -1, :]
             two = torch.stack([logits[:, no], logits[:, yes]], dim=1).float()
             return torch.softmax(two, dim=1)[:, 1]
@@ -349,6 +375,10 @@ if USE_RERANK:
     del model, tok
     torch.cuda.empty_cache()
     TIMINGS['rerank_pairs_per_s'] = round(len(pairs) / (time.perf_counter() - t0), 1)
+    if same_lang_of:   # EN/ZH chunk: the better of the VI query and the query in the chunk's language
+        TIMINGS['same_lang_raised'] = int((scores[n_base:] > scores[same_lang_of]).sum())
+        np.maximum.at(scores, np.array(same_lang_of), scores[n_base:])
+    scores = scores[:n_base]
     position = 0
     for pool in POOLS:
         part = scores[position:position + len(pool)]
@@ -469,7 +499,7 @@ if EXPAND_ON and DOC_RERANK != 'off':
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
     started = time.perf_counter()
-    keys, cand_rows = {}, []   # (qi, text) -> documents sharing it
+    keys, cand_rows, text_lang = {}, [], {}   # (qi, text) -> documents sharing it / language of the text
     for qi, entry in enumerate(submission):
         ranked = CTX['ranked'][entry['id']]
         best = EXPAND.best_chunks(ranked, CTX['docs_of'])
@@ -479,19 +509,31 @@ if EXPAND_ON and DOC_RERANK != 'off':
             if doc in best:   # documents filled from beyond the pool have no chunk text: they keep their rank
                 text = EXPAND.doc_text(best[doc], CTX['rows'], CTX['by_text'], DOC_LEAD_CHARS)
                 keys.setdefault((qi, text), []).append(doc)
+                text_lang[(qi, text)] = CTX['rows'][best[doc][0]]['lang']
     pairs = list(keys)
     print('example document text:', pairs[0][1][:600].replace('\n', ' | '))
+    # (query text, document text) to score: VI query for every document, then (RERANK_SAME_LANG) the query
+    # translated to the language of each EN/ZH document; a document keeps the better score.
+    scored = [(QUERY_TEXT[qi], text) for qi, text in pairs]
+    same_lang_of = []
+    if USE_TRANSLATION and RERANK_SAME_LANG:
+        for i, (qi, text) in enumerate(pairs):
+            translated = TRANS_TEXT[qi].get(text_lang[(qi, text)])
+            if translated:
+                scored.append((translated, text))
+                same_lang_of.append(i)
+    TIMINGS['doc_same_lang_pairs'] = len(same_lang_of)
 
     tok = AutoTokenizer.from_pretrained(str(DOC_RERANK_PATH))
     model = AutoModelForSequenceClassification.from_pretrained(str(DOC_RERANK_PATH), torch_dtype=torch.bfloat16).cuda().eval()
-    order = np.argsort([len(t) for _, t in pairs], kind='stable')   # similar lengths per batch: less padding
-    values = np.empty(len(pairs), dtype=np.float32)
-    note(f'document rerank: {len(cand_rows):,} candidates, {len(pairs):,} pairs')
+    order = np.argsort([len(t) for _, t in scored], kind='stable')   # similar lengths per batch: less padding
+    values = np.empty(len(scored), dtype=np.float32)
+    note(f'document rerank: {len(cand_rows):,} candidates, {len(pairs):,} texts, {len(scored):,} pairs')
     t0, next_report = time.perf_counter(), 0.05
     with torch.inference_mode():
         for start in range(0, len(order), 64):
             index = order[start:start + 64]
-            enc = tok([QUERY_TEXT[pairs[i][0]] for i in index], [pairs[i][1] for i in index], padding=True,
+            enc = tok([scored[i][0] for i in index], [scored[i][1] for i in index], padding=True,
                       truncation=True, max_length=512, return_tensors='pt').to('cuda')
             values[index] = torch.sigmoid(model(**enc).logits.view(-1).float()).cpu().numpy()
             done = (start + len(index)) / len(order)
@@ -501,6 +543,9 @@ if EXPAND_ON and DOC_RERANK != 'off':
                 next_report += 0.05
     del model, tok
     torch.cuda.empty_cache()
+    if same_lang_of:
+        np.maximum.at(values, np.array(same_lang_of), values[len(pairs):])
+    values = values[:len(pairs)]
 
     score = {(QUERY_IDS[qi], doc): float(v) for (qi, text), v in zip(pairs, values) for doc in keys[(qi, text)]}
     DOC_SCORES = {qid: {'bge-reranker-v2-m3': {}} for qid in QUERY_IDS}
@@ -571,9 +616,27 @@ CELLS = [
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--output', type=Path, default=Path('src/notebooks/kaggle_hybrid_retrieval.ipynb'))
+    parser.add_argument('--translations', type=Path, default=Path('artifacts/query_translations.json'),
+                        help='query_translations.json of scripts/translate_queries.py, embedded for USE_TRANSLATION')
     args = parser.parse_args()
-    args.output.write_text(json.dumps(notebook(CELLS), ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
-    print(f'{args.output}: {len(CELLS)} cells')
+    cells = list(CELLS)
+    cells.insert(cells.index(('code', guarded('variants', VARIANTS))), ('code', translations_cell(args.translations)))
+    args.output.write_text(json.dumps(notebook(cells), ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
+    print(f'{args.output}: {len(cells)} cells')
+
+
+def translations_cell(path):
+    """Code cell defining TRANSLATIONS_JSON (None when the file is absent)."""
+    if not path.is_file():
+        print(f'{path} not found: TRANSLATIONS_JSON = None (USE_TRANSLATION must be False)')
+        return "TRANSLATIONS_JSON = None   # rebuild with --translations to embed the query translations\n"
+    data = json.loads(path.read_text(encoding='utf-8'))
+    payload = json.dumps(dict(model=data['model'], revision=data.get('revision'),
+                              items=[{k: item[k] for k in ('id', 'vi', 'en', 'zh')} for item in data['items']]),
+                         ensure_ascii=False)
+    assert "'''" not in payload
+    return (f"# Query translations ({data['model']}, scripts/translate_queries.py), embedded by the generator.\n"
+            f"TRANSLATIONS_JSON = r'''{payload}'''\n")
 
 
 if __name__ == '__main__':

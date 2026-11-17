@@ -88,6 +88,52 @@ class DocRerank(unittest.TestCase):
         self.assertEqual(ec.fuse_docs([1, 2], scores, {'m': 1.0}, w_base=2.0, k=1, offset=100), [2, 1])
 
 
+class Windows(unittest.TestCase):
+    def setUp(self):
+        # Text a: chunks a-0..a-5 (doc 1), text b: b-0..b-2 (doc 2), text c: c-0 (doc 3); 10 bytes each, no overlap.
+        self.rows, self.by_pos = {}, {}
+        for sha, n, doc in (('a', 6, 1), ('b', 3, 2), ('c', 1, 3)):
+            for o in range(n):
+                cid = f'{sha}-{o}'
+                self.rows[cid] = dict(sha=sha, doc=doc, order=o, start=10 * o, end=10 * o + 10, text=f'{cid:<10}')
+                self.by_pos[(sha, o)] = cid
+        self.docs_of = lambda cid: [self.rows[cid]['doc']]
+
+    def build(self, order, docs, n_cover, budget):
+        return [c for c, _ in ec.build_windows(order, docs, n_cover, 1, budget, self.rows, self.by_pos, self.docs_of)]
+
+    def test_window_is_the_chunk_and_its_neighbours(self):
+        self.assertEqual(ec.window_ids('a-3', 1, self.rows, self.by_pos), ['a-2', 'a-3', 'a-4'])
+        self.assertEqual(ec.window_ids('a-0', 1, self.rows, self.by_pos), ['a-0', 'a-1'])
+
+    def test_one_window_per_text_before_second_windows(self):
+        self.assertEqual(self.build(['a-1', 'a-4', 'b-1', 'c-0'], [1, 2, 3], 0, 1000), ['a-1', 'b-1', 'c-0', 'a-4'])
+
+    def test_centre_inside_a_window_is_skipped(self):
+        self.assertEqual(self.build(['a-1', 'a-2', 'a-4'], [1], 0, 1000), ['a-1', 'a-4'])
+
+    def test_top_documents_first(self):
+        # Budget for two 3-chunk windows: doc 2 (listed first) gets its window before the second text in score order.
+        self.assertEqual(self.build(['a-1', 'c-0', 'b-1'], [2, 1, 3], 1, 60), ['b-1', 'a-1'])
+
+    def test_blended_order(self):
+        order = ec.blended_order(['x', 'y', 'z'], [[1.0, 0.5, 0.0], [0.0, 0.2, 1.0]], [0.25, 0.75])
+        self.assertEqual(order, ['z', 'y', 'x'])   # 0.75, 0.275, 0.25
+
+    def test_with_bm25w_appends_outside_chunks(self):
+        ids, bge, rrf, bm = ec.with_bm25w(['x', 'y'], [0.9, 0.1], [0.02, 0.01], (['y', 'w'], [5.0, 3.0]))
+        self.assertEqual(ids, ['x', 'y', 'w'])
+        self.assertEqual(bge, [0.9, 0.1, 0.0])
+        self.assertEqual(rrf, [0.02, 0.01, 0.01])
+        self.assertEqual(bm, [0.0, 5.0, 3.0])
+
+    def test_conf_doc_count_clips(self):
+        scores = {'m': {d: d / 10 for d in range(10)}}
+        self.assertEqual(ec.conf_doc_count(scores, 'm', 0.45, 2, 8), 5)
+        self.assertEqual(ec.conf_doc_count(scores, 'm', 0.95, 2, 8), 2)
+        self.assertEqual(ec.conf_doc_count(scores, 'm', 0.0, 2, 8), 8)
+
+
 class Variants(unittest.TestCase):
     def test_only_names_exist(self):
         self.assertTrue(set(ec.ONLY) <= set(ec.VARIANTS))

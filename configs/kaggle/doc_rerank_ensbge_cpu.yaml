@@ -1,0 +1,25 @@
+# CPU rebuild of the 0.2916 base (Bảo's v2 ensemble pool, bge on all 500 pool chunks) with window allocation
+# variants 'ensbge-*' (expand_chunks): DOC_RERANKERS = {}, PRIOR_DOC_RANK = True, POOL_FILE = pool-bgefull.parquet.
+# boinhbo/medxir-docrerank-ens-v2: the exported pool + submission of the ensemble (its pool.parquet is ignored);
+# ntklinhfitus/medxir-ens-v2-bgefull: pool-bgefull.parquet (final_score = bge, rrf = ensemble score, final_rank of
+# the export) and doc_rank.parquet of kernel boinhbo/medxir-doc-rerank-ens-v2, uploaded 31/10.
+kernel:
+  id: ntklinhfitus/medxir-doc-rerank-ensbge
+  title: medxir doc rerank ensbge
+  code_file: src/notebooks/kaggle_doc_rerank.ipynb
+  kernel_type: notebook
+  enable_gpu: false
+  enable_internet: false
+  dataset_sources: [boinhbo/medxir-retrieval-inputs, ntklinhfitus/medxir-chunk-corpus-v2, boinhbo/medxir-docrerank-ens-v2, ntklinhfitus/medxir-ens-v2-bgefull]
+  timeout_seconds: 7200
+  poll_interval_seconds: 60
+  metrics_file: expand_manifest.json
+  fetch_files:
+    - progress.txt
+    - expand_manifest.json
+    - medxir-expand-ensbge-win1-cov50-bz-submission.zip
+    - medxir-expand-ensbge-win1-cov0-bz-submission.zip
+  required_outputs:
+    - expand_manifest.json
+    - medxir-expand-ensbge-win1-cov50-bz-submission.zip
+    - medxir-expand-ensbge-win1-cov0-bz-submission.zip

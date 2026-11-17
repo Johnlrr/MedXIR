@@ -28,6 +28,7 @@ import os
 import zipfile
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -53,6 +54,19 @@ import pyarrow.parquet as pq
 # at ranks first..last that has none yet, then the rest of the pool. 30/10 (Qwen-8B, 0.2509): ranks 100-200 of
 # the document list got chunk text for 10% of the documents, ranks 50-100 for 48%, while ~15% of them are
 # relevant and a relevant document holds ~1 reference passage.
+# win: every entry is a window of the chunk +- win neighbours of the same text (the entry shape of the 0.2755
+# ensemble ZIP: no tiny spans, no 5+ chunk merges); a centre inside a chosen window is skipped. Centres in the
+# order of w_bge * bge + (1 - w_bge) * rrf, both min-max per query (0.2755 used bge 0.25 over its fused list).
+# cover_top: first the best window of each of the top cover_top listed documents, then one window per text in
+# score order, then second windows. A relevant document holds ~1 reference passage, so a second window of one
+# text rarely adds recall, while ~23% of the top-20 documents of the 0.2755 ZIP had no window.
+# doc_conf (t, lo, hi): per query, the documents with doc-reranker score >= t, at least lo and at most hi. A
+# document pays off in F2 when P(relevant) > ~F2 / 5 (~0.065 at Doc F2 0.32); bge scores scaled to the 0.161 Doc P
+# of the 0.2539 ZIP (mean bge of its top 200 = 0.514) put that at t = 0.208 (~189 documents on average).
+# bm25w (needs bm25_words.py outputs attached): doc_rr column 'bm25w' = the word-BM25 rank of the best
+# BM25W_TEXTS texts (their documents), fused by RRF with bge; w_bm25w adds the word-BM25 chunk score (best
+# BM25W_CHUNKS chunks, also those outside the pool) to the window order. 30/10: 48% of the word-BM25 top 40
+# documents are in none of our 206-document lists.
 VARIANTS = {
     'nb0': dict(nb=0), 'nb10': dict(nb=10), 'nb30': dict(nb=30), 'nb60': dict(nb=60), 'wholedoc': dict(nb='whole'),
     'nb60-d300': dict(nb=60, n_docs=300),
@@ -89,11 +103,25 @@ VARIANTS = {
                                            conf_t=0.5, min_chars=200),
     'nball-drr-bge-only-ghigh-min200': dict(nb=10 ** 6, doc_rr={'bge-reranker-v2-m3': 1.0}, w_base=0.0,
                                             conf_gamma=-0.5, conf_t=0.5, min_chars=200),
+    'win1-cov50-drr-bge-only': dict(nb=0, win=1, w_bge=0.25, cover_top=50, doc_rr={'bge-reranker-v2-m3': 1.0},
+                                    w_base=0.0, budget_scale=1.15),
+    'win1-cov50-drr-bge-conf': dict(nb=0, win=1, w_bge=0.25, cover_top=50, doc_rr={'bge-reranker-v2-m3': 1.0},
+                                    w_base=0.0, budget_scale=1.15, doc_conf=(0.208, 80, 300)),
+    # Ensemble pool of the 0.2916 ZIP (POOL_FILE=pool-bgefull.parquet: final_score = bge on all 500 pool chunks,
+    # rrf = ensemble score), windows in its order (ensemble 0.75, bge 0.25), BZIP2 with the budget loop filling
+    # ~99 MB. cov0: one window per text before second windows; cov50: the top 50 listed documents first.
+    'ensbge-win1-cov50-bz': dict(nb=0, win=1, w_bge=0.25, cover_top=50, doc_rr={'bge-reranker-v2-m3': 1.0},
+                                 w_base=0.0, zip='bzip2', budget_scale=2.0),
+    'ensbge-win1-cov0-bz': dict(nb=0, win=1, w_bge=0.25, cover_top=0, doc_rr={'bge-reranker-v2-m3': 1.0},
+                                w_base=0.0, zip='bzip2', budget_scale=2.0),
+    'win1-cov50-bm25w-drr': dict(nb=0, win=1, w_bge=0.25, w_bm25w=0.25, cover_top=50,
+                                 doc_rr={'bge-reranker-v2-m3': 1.0, 'bm25w': 1.0}, w_base=0.0, budget_scale=1.15),
 }
 ONLY = ['nb60-d300']   # variants to build this run; [] = all
 BUDGET_SCALE = 1.08   # 87.5 MB hybrid ZIP * 1.08 stays below the 100 MB limit
 MAX_ZIP_MB = 99.0
 CONF_CLIP = (0.5, 2.0)
+BM25W_CHUNKS, BM25W_TEXTS = 200, 100   # word-BM25 candidates read per query
 RRF_K = 60
 INPUT = os.environ.get('INPUT_ROOT', '/kaggle/input')
 OUT = Path(os.environ.get('OUT_DIR', '/kaggle/working'))
@@ -258,13 +286,19 @@ def load_inputs(pool_path=None, base=None, chunk_files=None):
     The hybrid notebook passes its own pool.parquet, in-memory submission and validated chunk parts;
     otherwise they are found under INPUT.
     """
-    pool = pd.read_parquet(pool_path or one_match('pool.parquet'),
-                           columns=['query_id', 'chunk_id', 'final_rank', 'final_score'])
+    pool_path = pool_path or one_match(os.environ.get('POOL_FILE', 'pool.parquet'))
+    columns = ['query_id', 'chunk_id', 'final_rank', 'final_score']
+    pool = pd.read_parquet(pool_path, columns=columns + (['rrf'] if 'rrf' in pq.read_schema(pool_path).names else []))
     pool = pool.sort_values(['query_id', 'final_rank'])
     ranked = {qid: g['chunk_id'].tolist() for qid, g in pool.groupby('query_id', sort=False)}
     score = {qid: g['final_score'].tolist() for qid, g in pool.groupby('query_id', sort=False)}
+    rrf = {qid: g['rrf'].tolist() for qid, g in pool.groupby('query_id', sort=False)} if 'rrf' in pool else None
     base = load_submission() if base is None else base
     needed_sha_prefix = {cid.rsplit('-', 1)[0] for ids in ranked.values() for cid in ids}
+    bm25w = load_bm25w()
+    if bm25w:
+        needed_sha_prefix |= {cid.rsplit('-', 1)[0] for ids, _ in bm25w['chunks'].values() for cid in ids}
+        needed_sha_prefix |= {sha[:16] for shas, _ in bm25w['texts'].values() for sha in shas}
 
     # Every chunk of the candidate texts: the neighbours are rows of the same text_sha256.
     rows, by_pos = {}, {}
@@ -295,8 +329,31 @@ def load_inputs(pool_path=None, base=None, chunk_files=None):
     by_text = {}
     for cid in sorted(rows, key=lambda c: rows[c]['order']):
         by_text.setdefault(rows[cid]['sha'], []).append(cid)
-    return dict(ranked=ranked, score=score, base=base, rows=rows, by_pos=by_pos, by_text=by_text, docs_of=docs_of,
+
+    def text_docs(sha):
+        return group.get(sha) or ([rows[by_text[sha][0]]['doc']] if sha in by_text else [])
+
+    if bm25w:   # word-BM25 chunks whose rows were not found (other corpus parts) are dropped
+        for q, (ids, scores) in bm25w['chunks'].items():
+            keep = [(c, s) for c, s in zip(ids, scores) if c in rows]
+            bm25w['chunks'][q] = ([c for c, _ in keep], [s for _, s in keep])
+    return dict(ranked=ranked, score=score, rrf=rrf, bm25w=bm25w, text_docs=text_docs,
+                base=base, rows=rows, by_pos=by_pos, by_text=by_text, docs_of=docs_of,
                 lang_of={doc: row['lang'] for cid, row in rows.items() for doc in docs_of(cid)})
+
+
+def load_bm25w(n_chunks=None, n_texts=None):
+    """Word-BM25 candidates of bm25_words.py, {'chunks': {qid: (ids, scores)}, 'texts': {qid: (shas, scores)}}, or
+    None when bm25w-chunks-k500.npz is not attached. Only positive scores, the BM25W_CHUNKS / BM25W_TEXTS best."""
+    if not glob.glob(f'{INPUT}/**/bm25w-chunks-k500.npz', recursive=True):
+        return None
+    out = {}
+    for key, name, column, n in (('chunks', 'bm25w-chunks-k500.npz', 'chunk_ids', n_chunks or BM25W_CHUNKS),
+                                 ('texts', 'bm25w-texts-k500.npz', 'text_sha256', n_texts or BM25W_TEXTS)):
+        with np.load(one_match(name), allow_pickle=True) as z:
+            out[key] = {int(q): ([str(x) for x, s in zip(ids[:n], sc[:n]) if s > 0], [float(s) for s in sc[:n] if s > 0])
+                        for q, ids, sc in zip(z['query_ids'], z[column], z['scores'])}
+    return out
 
 
 def load_doc_scores():
@@ -333,6 +390,65 @@ def cover_order(ranked, n_head, docs, first, last, docs_of):
     return head + promoted + [c for c in ranked[n_head:] if c not in moved]
 
 
+def blended_order(ranked, columns, weights):
+    """Chunks sorted by sum(weight * column), each column min-max scaled within the query."""
+    def scaled(values):
+        lo, hi = min(values), max(values)
+        return [(v - lo) / (hi - lo) if hi > lo else 0.0 for v in values]
+    blend = [sum(w * v for w, v in zip(weights, row)) for row in zip(*(scaled(c) for c in columns))]
+    return [ranked[i] for i in sorted(range(len(ranked)), key=lambda i: -blend[i])]
+
+
+def with_bm25w(ranked, bge, rrf, bm25w):
+    """Pool chunks + the word-BM25 chunks outside the pool, with (bge, rrf, bm25w) columns; absent scores are the
+    column minimum (0 for bge and BM25, the pool minimum for rrf)."""
+    ids, scores = bm25w
+    by_id = dict(zip(ids, scores))
+    extra = [c for c in ids if c not in set(ranked)]
+    out = list(ranked) + extra
+    rrf_floor = min(rrf) if rrf else 0.0
+    return (out, list(bge) + [0.0] * len(extra), list(rrf) + [rrf_floor] * len(extra),
+            [by_id.get(c, 0.0) for c in out])
+
+
+def window_ids(cid, context, rows, by_pos):
+    """Chunk ids of the window order - context .. order + context of the chunk's text, text order."""
+    sha, order = rows[cid]['sha'], rows[cid]['order']
+    return [by_pos[(sha, o)] for o in range(order - context, order + context + 1) if (sha, o) in by_pos]
+
+
+def build_windows(order, docs, n_cover, context, budget, rows, by_pos, docs_of):
+    """[(centre, window chunk ids)] for one query until the budget is used.
+
+    Passes: the best chunk of each of the top n_cover documents, then the chunks in order with one window per
+    text, then the chunks in order again (second windows). A centre inside a chosen window is skipped.
+    """
+    best = {}
+    for cid in order:
+        for doc in docs_of(cid):
+            best.setdefault(doc, cid)
+    head = list(dict.fromkeys(best[d] for d in docs[:n_cover] if d in best))
+    chosen, covered, used = [], {}, 0
+    for one_per_text, candidates in ((True, head), (True, order), (False, order)):
+        for cid in candidates:
+            sha, o = rows[cid]['sha'], rows[cid]['order']
+            if o in covered.get(sha, ()) or (one_per_text and sha in covered):
+                continue
+            ids = window_ids(cid, context, rows, by_pos)
+            cost = len(merge_run([rows[c] for c in ids]).encode('utf-8')) * len(docs_of(cid))
+            if used + cost > budget:
+                continue   # a long or wide-fanout window does not fit; smaller ones further down may
+            chosen.append((cid, ids))
+            used += cost
+            covered.setdefault(sha, set()).update(range(o - context, o + context + 1))
+    return chosen
+
+
+def conf_doc_count(q_scores, column, threshold, lo, hi):
+    """Documents with reranker score >= threshold, clipped to [lo, hi]."""
+    return min(max(sum(s >= threshold for s in q_scores.get(column, {}).values()), lo), hi)
+
+
 def chosen_bytes(chosen, rows, docs_of):
     return sum(len(rows[c]['text'].encode('utf-8')) * len(docs_of(c)) for c in chosen)
 
@@ -364,10 +480,17 @@ def build_variants(ctx, only=None, doc_scores=None):
     for name, spec in VARIANTS.items():
         if only and name not in only:
             continue
+        if spec.get('win') is not None and ctx.get('rrf') is None:
+            print(name, 'skipped: pool.parquet has no rrf column', flush=True)
+            continue
+        uses_bm25w = 'bm25w' in spec.get('doc_rr', {}) or spec.get('w_bm25w')
+        if uses_bm25w and not ctx.get('bm25w'):
+            print(name, 'skipped: bm25w-chunks-k500.npz not attached', flush=True)
+            continue
         if spec.get('doc_rr'):
             doc_scores = doc_scores or load_doc_scores()
             some = next(iter(doc_scores.values()))
-            absent = [c for c in spec['doc_rr'] if c not in some]
+            absent = [c for c in spec['doc_rr'] if c not in some and c != 'bm25w']
             if absent:
                 print(name, 'skipped: no doc_rank column', absent, flush=True)
                 continue
@@ -385,10 +508,17 @@ def build_variants(ctx, only=None, doc_scores=None):
                 qid = entry['id']
                 if spec.get('doc_rr'):
                     q_scores = doc_scores.get(qid, {})
+                    if 'bm25w' in spec['doc_rr']:
+                        q_scores = dict(q_scores, bm25w={})
+                        for sha, s in zip(*ctx['bm25w']['texts'].get(qid, ([], []))):
+                            for doc in ctx['text_docs'](sha):
+                                q_scores['bm25w'].setdefault(doc, s)
                     candidates = list(dict.fromkeys(
                         doc_list(entry['relevant_docs'], ranked[qid], docs_of, lang_of, n_docs=10 ** 6)
                         + [d for c in spec['doc_rr'] for d in q_scores.get(c, {})]))
                     keep = spec.get('n_docs') or len(entry['relevant_docs'])
+                    if spec.get('doc_conf'):
+                        keep = conf_doc_count(q_scores, next(iter(spec['doc_rr'])), *spec['doc_conf'])
                     fixed = candidates[:spec.get('keep_top', 0)]
                     docs = fixed + fuse_docs(candidates[len(fixed):], q_scores, spec['doc_rr'], spec.get('w_base', 1.0),
                                              offset=len(fixed))[:keep - len(fixed)]
@@ -396,7 +526,20 @@ def build_variants(ctx, only=None, doc_scores=None):
                 else:
                     docs = doc_list(entry['relevant_docs'], ranked[qid], docs_of, lang_of,
                                     spec.get('n_docs', 0), spec.get('doc_quota', 0.0))
-                if n_neighbour == 'whole':
+                windows = None
+                if spec.get('win') is not None:
+                    if spec.get('w_bm25w'):
+                        ids, bge, rrf, bm = with_bm25w(ranked[qid], ctx['score'][qid], ctx['rrf'][qid],
+                                                       ctx['bm25w']['chunks'].get(qid, ([], [])))
+                        weights = [spec['w_bge'], 1 - spec['w_bge'] - spec['w_bm25w'], spec['w_bm25w']]
+                        order = blended_order(ids, [bge, rrf, bm], weights)
+                    else:
+                        order = blended_order(ranked[qid], [ctx['score'][qid], ctx['rrf'][qid]],
+                                              [spec['w_bge'], 1 - spec['w_bge']])
+                    windows = build_windows(order, docs, spec.get('cover_top', 0), spec['win'], q_budget[qid] * scale,
+                                            rows, by_pos, docs_of)
+                    chosen = list(dict.fromkeys(c for _, ids in windows for c in ids))
+                elif n_neighbour == 'whole':
                     chosen = build_whole_docs(ranked[qid], entry['relevant_docs'], q_budget[qid] * scale,
                                               rows, by_text, docs_of)
                 elif spec.get('cover'):
@@ -411,7 +554,9 @@ def build_variants(ctx, only=None, doc_scores=None):
                     other_bytes += size if rows[c]['lang'] != 'vi' else 0
                 listed = set(docs)
                 chunks = []
-                for cid, text in spans(chosen, rows):
+                entries = ([(cid, merge_run([rows[c] for c in ids])) for cid, ids in windows] if windows is not None
+                           else spans(chosen, rows))
+                for cid, text in entries:
                     if len(text) < spec.get('min_chars', 0):
                         dropped += 1
                         continue

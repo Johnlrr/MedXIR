@@ -156,6 +156,9 @@ for model_key in ACTIVE_MODEL_WEIGHTS:
     subs = [[] for _ in QUERY_TEXT]
     for i in np.flatnonzero(kinds == 'sub'):
         subs[owner[i]].append(ALL_IDS[d_rows[i, :SUB_K]])
+    trans = [[] for _ in QUERY_TEXT]   # EN / ZH translations of the query (USE_TRANSLATION)
+    for i in np.flatnonzero(kinds == 'trans'):
+        trans[owner[i]].append(ALL_IDS[d_rows[i, :TRANS_K]])
     prf_ids = None
     if USE_PRF:
         with torch.inference_mode():
@@ -166,7 +169,7 @@ for model_key in ACTIVE_MODEL_WEIGHTS:
         prf_ids = ALL_IDS[prf_rows]
         del feedback, q, prf, prf_rows
     MODEL_RESULTS[model_key] = dict(full_ids=ALL_IDS[d_rows[FULL]], full_scores=d_scores[FULL],
-                                   sub_lists=subs, prf_ids=prf_ids)
+                                   sub_lists=subs, trans_lists=trans, prf_ids=prf_ids)
     del PARTS, variant_vectors, d_scores, d_rows
     torch.cuda.empty_cache()
     note(f'{model_key}: full/sub/PRF retrieval complete in {time.perf_counter() - t0:.0f}s; GPU vectors released')

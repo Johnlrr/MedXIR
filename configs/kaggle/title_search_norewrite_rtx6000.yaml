@@ -1,0 +1,20 @@
+# RTX Pro 6000: title search (scripts/title_search.py). Titles of chunk corpus v2 embedded with Qwen3-Embedding-8B,
+# searched with the query and its title-style rewrite (kernel ntklinhfitus/medxir-rewrite-queries); documents not
+# among the candidates of the 0.2916/0.2965 pipeline (doc_rank.parquet in ntklinhfitus/medxir-ens-v2-bgefull) are
+# scored with bge-reranker-v2-m3 like those candidates. v1: original query only (no rewrite source attached).
+kernel:
+  id: ntklinhfitus/medxir-title-search
+  title: medxir title search
+  code_file: src/notebooks/kaggle_title_search.ipynb
+  kernel_type: notebook
+  enable_gpu: true
+  enable_internet: false
+  machine_shape: NvidiaRtxPro6000
+  expected_hardware_contains: "6000"
+  competition_sources: [arc-prize-2026-arc-agi-3]
+  kernel_sources: [boinhbo/medxir-package-qwen8b, boinhbo/medxir-package-rerankers]
+  dataset_sources: [boinhbo/medxir-retrieval-inputs, ntklinhfitus/medxir-chunk-corpus-v2, ntklinhfitus/medxir-ens-v2-bgefull]
+  timeout_seconds: 10800
+  poll_interval_seconds: 60
+  fetch_files: [title_manifest.json, title_candidates.parquet]
+  required_outputs: [title_manifest.json, title_candidates.parquet]

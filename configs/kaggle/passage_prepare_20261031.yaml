@@ -1,0 +1,38 @@
+{
+  "kernel": {
+    "id": "ntklinhfitus/medxir-passages-prepare-20261031",
+    "title": "medxir-passages-prepare-20261031",
+    "code_file": "src/notebooks/kaggle_passage_prepare.ipynb",
+    "kernel_type": "notebook",
+    "immutable_kernel": true,
+    "enable_gpu": false,
+    "enable_internet": false,
+    "kernel_sources": [
+      "boinhbo/medxir-package-rerankers"
+    ],
+    "timeout_seconds": 36000,
+    "poll_interval_seconds": 30,
+    "dataset_sources": [
+      "ntklinhfitus/medxir-chunk-corpus-v2",
+      "boinhbo/medxir-docrerank-ens-v2",
+      "boinhbo/medxir-retrieval-inputs"
+    ],
+    "fetch_files": [
+      "passage_candidates_manifest.json"
+    ],
+    "required_outputs": [
+      "passage_candidates_manifest.json"
+    ],
+    "metrics_file": "passage_candidates_manifest.json",
+    "json_checks": [
+      {
+        "path": "complete",
+        "value": true
+      },
+      {
+        "path": "queries",
+        "value": 1200
+      }
+    ]
+  }
+}

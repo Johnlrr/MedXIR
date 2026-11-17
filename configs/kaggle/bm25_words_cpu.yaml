@@ -1,0 +1,23 @@
+# CPU job: BM25 over Vietnamese words (scripts/bm25_words.py), the organizers' baseline recipe (pyvi words,
+# NFKC + lowercase, k1 1.5, b 0.75), on the chunks and on whole texts of chunk corpus v2. Internet ON for pip pyvi.
+kernel:
+  id: ntklinhfitus/medxir-bm25-words
+  title: medxir bm25 words
+  code_file: src/notebooks/kaggle_bm25_words.ipynb
+  kernel_type: notebook
+  enable_gpu: false
+  enable_internet: true
+  dataset_sources: [boinhbo/medxir-retrieval-inputs, ntklinhfitus/medxir-chunk-corpus-v2]
+  timeout_seconds: 10800
+  poll_interval_seconds: 60
+  metrics_file: bm25w_manifest.json
+  fetch_files:
+    - bm25w_manifest.json
+    - bm25w-chunks-k500.npz
+    - bm25w-texts-k500.npz
+    - medxir-bm25w-d30-submission.zip
+    - medxir-bm25w-d40-submission.zip
+  required_outputs:
+    - bm25w_manifest.json
+    - bm25w-texts-k500.npz
+    - medxir-bm25w-d40-submission.zip
