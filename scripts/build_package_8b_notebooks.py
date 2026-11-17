@@ -3,6 +3,7 @@
   src/notebooks/kaggle_package_qwen8b.ipynb   Qwen/Qwen3-Embedding-8B
   src/notebooks/kaggle_package_octen8b.ipynb  Octen/Octen-Embedding-8B
   src/notebooks/kaggle_package_qwen3llm8b.ipynb  Qwen/Qwen3-8B (LLM for query variants; 14B is ~30 GB, over the limit)
+  src/notebooks/kaggle_package_qwenrr8b.ipynb  Qwen/Qwen3-Reranker-8B (document and window rerank)
 
 Two kernels, not one: the two snapshots are about 31 GB together and /kaggle/working holds 20 GB. Each
 writes models/<name>/ and MODELS.json at a pinned revision; offline RTX Pro 6000 kernels attach it with
@@ -20,6 +21,7 @@ MODELS = {
     'qwen8b': 'Qwen/Qwen3-Embedding-8B',
     'octen8b': 'Octen/Octen-Embedding-8B',
     'qwen3llm8b': 'Qwen/Qwen3-8B',
+    'qwenrr8b': 'Qwen/Qwen3-Reranker-8B',
 }
 
 INTRO = """

@@ -1,0 +1,13 @@
+# CPU, Internet ON: snapshot Qwen/Qwen3-Reranker-8B at pinned revisions.
+# Offline (RTX Pro 6000) jobs attach the output with kernel_sources: [boinhbo/medxir-package-qwenrr8b].
+kernel:
+  id: boinhbo/medxir-package-qwenrr8b
+  title: medxir package qwenrr8b
+  code_file: src/notebooks/kaggle_package_qwenrr8b.ipynb
+  kernel_type: notebook
+  enable_gpu: false
+  enable_internet: true
+  timeout_seconds: 7200
+  poll_interval_seconds: 60
+  fetch_files: [models/MODELS.json]
+  required_outputs: [models/MODELS.json]

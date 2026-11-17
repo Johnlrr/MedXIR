@@ -274,6 +274,12 @@ def main():
     parser.add_argument('--doc-rank', type=Path, default=None,
                         help="doc_rank.parquet of kaggle_doc_rerank.ipynb run on this run's --export-pool output")
     parser.add_argument('--doc-rank-column', default='bge-reranker-v2-m3')
+    parser.add_argument('--export-windows', type=Path, default=None,
+                        help='write the max(--chunk-counts) candidate windows per query (text + fused score) and stop')
+    parser.add_argument('--window-scores', default=None, metavar='PARQUET:WEIGHT',
+                        help='window reranker scores (query_id, center_id, score): windows are picked among the '
+                             'max(--chunk-counts) candidates by min-max fused score + WEIGHT * score; give the '
+                             'submitted count first (it sets the document list length), e.g. --chunk-counts 131,180')
     parser.add_argument('--doc-prior-bge-only', action='store_true',
                         help='--doc-prior uses the --doc-rank scores only, not --doc-rank-extra (31/10: LLM in the prior '
                              'cost 0.0018 Chunk F2 while LLM in the document list gained 0.0039 Doc F2)')
@@ -283,7 +289,7 @@ def main():
     parser.add_argument('--doc-prior', type=float, default=0.0,
                         help='add this times the best --doc-rank score of a chunk\'s documents to its score before '
                              'choosing chunks/windows')
-    parser.add_argument('--zip', choices=['deflate', 'bzip2', 'lzma'], default='deflate', help='ZIP compression method')
+    parser.add_argument('--zip', choices=['deflate', 'bzip2', 'lzma', 'lzma-big'], default='deflate', help='ZIP compression method')
     parser.add_argument('--dry-run', action='store_true', help='print the set difference only, write nothing')
     parser.add_argument('--out', type=Path, default=ROOT / 'artifacts' / 'submission')
     args = parser.parse_args()
@@ -379,6 +385,36 @@ def main():
                   for cid in centers for d in range(-args.context, args.context + 1)}
         spans = load_spans(chunk_files, needed)
         assert centers <= set(spans)
+        if args.export_windows:  # candidate windows for a window reranker (kaggle_window_rerank.ipynb), then stop
+            fused = [dict(zip(row, row_scores)) for row, row_scores in zip(ids, scores)]
+            rows = [(int(qid), cid, rank, float(fused[qi][cid]), window_text(cid, args.context, spans))
+                    for qi, qid in enumerate(queries['id'].tolist()) for rank, cid in enumerate(windows[qi])]
+            frame = pd.DataFrame(rows, columns=['query_id', 'center_id', 'window_rank', 'fused_score', 'text'])
+            frame.to_parquet(args.export_windows, index=False, compression='zstd')
+            print('windows:', args.export_windows, len(frame), 'rows', flush=True)
+            return
+        if args.window_scores:  # re-pick the windows among the candidates by fused + weight * reranker score
+            path, weight = args.window_scores.rsplit(':', 1)
+            ws = pd.read_parquet(path, columns=['query_id', 'center_id', 'score'])
+            ws = {(int(q), c): float(v) for q, c, v in zip(ws['query_id'], ws['center_id'], ws['score'])}
+            fused = [dict(zip(row, row_scores)) for row, row_scores in zip(ids, scores)]
+            picked, missing = [], 0
+            for qi, qid in enumerate(queries['id'].tolist()):
+                cands = windows[qi]
+                f = np.array([fused[qi][c] for c in cands], dtype=np.float32)
+                f = (f - f.min()) / (f.max() - f.min()) if f.max() > f.min() else np.zeros_like(f)
+                r = np.array([ws.get((int(qid), c), np.nan) for c in cands], dtype=np.float32)
+                # combine() pools with a set of str ids, so equal scores can order differently in another process
+                # (str hash seed): a window missing from the exported candidates gets the query's median score.
+                missing += int(np.isnan(r).sum())
+                r = np.where(np.isnan(r), np.nanmedian(r), r)
+                combined = f + float(weight) * r
+                picked.append([cands[i] for i in np.argsort(-combined, kind='stable')])
+            kept = np.mean([len(set(a[:min(chunk_counts)]) & set(b[:min(chunk_counts)])) / min(chunk_counts)
+                            for a, b in zip(picked, windows)])
+            print(json.dumps(dict(window_scores=path, weight=float(weight), windows_kept=round(float(kept), 3),
+                                  windows_without_score=missing)), flush=True)
+            windows = picked
     corpus_ids = set(map(int, pd.read_parquet(ROOT / 'dataset' / 'links_corpus_vi_en_zh.parquet', columns=['id'])['id']))
     doc_override = None
     if args.doc_rank:
@@ -408,7 +444,7 @@ def main():
                     json.dumps(submission, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
                 print('doc rerank inputs:', folder, flush=True)
             name = (f'medxir-{args.tag}-d{n}-c{c}' + (f'-s{args.split}' if args.split > 1 else '')
-                    + (f'-x{args.context}' if args.context else '') + {'deflate': '', 'bzip2': '-bz', 'lzma': '-lz'}[args.zip]
+                    + (f'-x{args.context}' if args.context else '') + {'deflate': '', 'bzip2': '-bz', 'lzma': '-lz', 'lzma-big': '-lzb'}[args.zip]
                     + '-submission')
             print(f'd{n}-c{c}', dense.write_submission(submission, args.out, name, args.zip), flush=True)
 

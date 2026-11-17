@@ -30,6 +30,8 @@ trades document precision for document recall without touching the chunk list.
 """
 import argparse
 import json
+import lzma
+import struct
 import time
 import zipfile
 from pathlib import Path
@@ -171,14 +173,46 @@ def validate(submission, queries, corpus_ids):
         assert all(chunk['doc_id'] in listed and chunk['chunk_text'].strip() for chunk in entry['relevant_chunks'])
 
 
+class BigDictLZMA:
+    """zipfile's LZMA (method 14) compressor with preset 9e and a large dictionary. Windows repeat across queries
+    (popular documents) and across the doc_ids of one text, hundreds of MB apart in the JSON; the default 8 MiB
+    dictionary cannot reuse them. 3/11 on the 131-window JSON (639 MB): 8 MiB 97.1 MB, 64 MiB 83.5 MB, 256 MiB 69.4 MB.
+    Standard ZIP LZMA: the dictionary size is in the stream header, any LZMA decoder reads it."""
+    dict_mb = 256
+
+    def __init__(self):
+        filt = {'id': lzma.FILTER_LZMA1, 'preset': 9 | lzma.PRESET_EXTREME, 'dict_size': self.dict_mb << 20}
+        self._props = lzma._encode_filter_properties(filt)
+        self._comp = lzma.LZMACompressor(lzma.FORMAT_RAW, filters=[filt])
+        self._header = struct.pack('<BBH', 9, 4, len(self._props)) + self._props
+
+    def compress(self, data):
+        out, self._header = self._header + self._comp.compress(data), b''
+        return out
+
+    def flush(self):
+        return self._header + self._comp.flush()
+
+
 def write_submission(submission, out, name, method='deflate'):
-    """method 'bzip2' packs ~1.55x the text of deflate into the same ZIP size (30/10 test on the 0.2477 JSON)."""
+    """method 'bzip2' packs ~1.55x the text of deflate into the same ZIP size (30/10 test on the 0.2477 JSON);
+    'lzma-big' uses BigDictLZMA (~1.4x the text of plain 'lzma')."""
     json_path = out / f'{name}.json'
     zip_path = out / f'{name}.zip'
     json_path.write_text(json.dumps(submission, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
-    compression = {'deflate': zipfile.ZIP_DEFLATED, 'bzip2': zipfile.ZIP_BZIP2, 'lzma': zipfile.ZIP_LZMA}[method]
-    with zipfile.ZipFile(zip_path, 'w', compression=compression, compresslevel=9) as archive:
-        archive.write(json_path, arcname=json_path.name)
+    compression = {'deflate': zipfile.ZIP_DEFLATED, 'bzip2': zipfile.ZIP_BZIP2, 'lzma': zipfile.ZIP_LZMA,
+                   'lzma-big': zipfile.ZIP_LZMA}[method]
+    original = zipfile.LZMACompressor
+    if method == 'lzma-big':
+        zipfile.LZMACompressor = BigDictLZMA
+    try:
+        with zipfile.ZipFile(zip_path, 'w', compression=compression, compresslevel=9) as archive:
+            archive.write(json_path, arcname=json_path.name)
+    finally:
+        zipfile.LZMACompressor = original
+    if method == 'lzma-big':  # read back with the standard decoder: same bytes as the JSON
+        with zipfile.ZipFile(zip_path) as archive:
+            assert archive.read(json_path.name) == json_path.read_bytes()
     with zipfile.ZipFile(zip_path) as archive:
         assert archive.namelist() == [json_path.name]
     docs = [len(entry['relevant_docs']) for entry in submission]

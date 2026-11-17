@@ -1,0 +1,18 @@
+# Qwen3-Reranker-8B scores candidate documents at ranks 0-300 of the 0.2984 document order (bge + Qwen3-8B), so the
+# zone covers the 200 cut; candidates + ensemble pool in dinhbaobao/medxir-docrerank-rr8-v2. Shard 1 of 2 (queries 1, 1+2, ...).
+kernel:
+  id: boinhbo/medxir-doc-rerank-rr8-s1
+  title: medxir doc rerank rr8 s1
+  code_file: src/notebooks/kaggle_doc_rerank_rr8_s1.ipynb
+  kernel_type: notebook
+  enable_gpu: true
+  enable_internet: false
+  machine_shape: NvidiaRtxPro6000
+  expected_hardware_contains: "6000"
+  competition_sources: [arc-prize-2026-arc-agi-3]
+  kernel_sources: [dinhbaobao/medxir-package-qwenrr8b]
+  dataset_sources: [boinhbo/medxir-retrieval-inputs, ntklinhfitus/medxir-chunk-corpus-v2, dinhbaobao/medxir-docrerank-rr8-v2]
+  timeout_seconds: 36000
+  poll_interval_seconds: 300
+  fetch_files: [progress.txt, faulthandler.txt, doc_rank.parquet]
+  required_outputs: [doc_rank.parquet]

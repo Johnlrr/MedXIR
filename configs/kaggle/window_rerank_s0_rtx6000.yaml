@@ -1,0 +1,19 @@
+# Qwen3-Reranker-8B scores the 180 candidate windows per query of the 0.2984 recipe (fuse_scores.py --export-windows,
+# dataset phcnguynvnbo/medxir-windows-rr8-v2), queries 0, 0+4, ... (shard 0 of 4, account phcnguynvnbo). fuse_scores.py --window-scores
+# re-picks 131 of them.
+kernel:
+  id: boinhbo/medxir-window-rerank-s0
+  title: medxir window rerank s0
+  code_file: src/notebooks/kaggle_window_rerank_s0.ipynb
+  kernel_type: notebook
+  enable_gpu: true
+  enable_internet: false
+  machine_shape: NvidiaRtxPro6000
+  expected_hardware_contains: "6000"
+  competition_sources: [arc-prize-2026-arc-agi-3]
+  kernel_sources: [phcnguynvnbo/medxir-package-qwenrr8b]
+  dataset_sources: [phcnguynvnbo/medxir-windows-rr8-v2]
+  timeout_seconds: 36000
+  poll_interval_seconds: 300
+  fetch_files: [progress.txt, faulthandler.txt, window_scores.parquet]
+  required_outputs: [window_scores.parquet]
